@@ -1,0 +1,2218 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>BitLife: República Acadêmica</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root {
+    --bl-navy: #1c2d4a;
+    --bl-navy-dark: #132036;
+    --bl-blue: #2b7de9;
+    --bl-green: #2eb85c;
+    --bl-green-dark: #229648;
+    --bl-red: #e55353;
+    --bl-yellow: #f5a623;
+    --bl-bg: #f2f4f7;
+    --bl-card: #ffffff;
+    --bl-text: #1e293b;
+    --bl-muted: #64748b;
+    --bl-border: #e2e8f0;
+  }
+  .dark {
+    --bl-bg: #0f172a;
+    --bl-card: #1e293b;
+    --bl-text: #f1f5f9;
+    --bl-muted: #94a3b8;
+    --bl-border: #334155;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0;
+    font-family: 'Nunito', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #0b1120;
+    color: var(--bl-text);
+    display: flex;
+    justify-content: center;
+    height: 100dvh;
+    overflow: hidden;
+  }
+  #app {
+    width: 100%;
+    max-width: 480px;
+    height: 100dvh;
+    background: var(--bl-bg);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    box-shadow: 0 0 40px rgba(0,0,0,0.65);
+  }
+  .bl-feed::-webkit-scrollbar, .bl-scroll::-webkit-scrollbar { width: 5px; }
+  .bl-feed::-webkit-scrollbar-track, .bl-scroll::-webkit-scrollbar-track { background: transparent; }
+  .bl-feed::-webkit-scrollbar-thumb, .bl-scroll::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.4); border-radius: 10px; }
+
+  .age-btn {
+    background: radial-gradient(circle at 35% 30%, #43d674, var(--bl-green) 65%, var(--bl-green-dark));
+    box-shadow: 0 6px 0 var(--bl-green-dark), 0 10px 20px rgba(46, 184, 92, 0.4);
+    transition: transform 0.08s, box-shadow 0.08s;
+  }
+  .age-btn:active:not(:disabled) {
+    transform: translateY(4px);
+    box-shadow: 0 2px 0 var(--bl-green-dark), 0 4px 10px rgba(46, 184, 92, 0.3);
+  }
+  .age-btn.pending {
+    background: radial-gradient(circle at 35% 30%, #fbbf24, #d97706 70%, #b45309);
+    box-shadow: 0 6px 0 #92400e, 0 10px 20px rgba(217, 119, 6, 0.35);
+  }
+  .age-btn.pending:active {
+    transform: translateY(4px);
+    box-shadow: 0 2px 0 #92400e;
+  }
+
+  @keyframes slideUp {
+    from { transform: translateY(100%); opacity: 0.6; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  @keyframes popModal {
+    0% { transform: scale(0.88); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  @keyframes floatBadge {
+    0% { transform: translateY(0) scale(0.95); opacity: 1; }
+    100% { transform: translateY(-50px) scale(1.05); opacity: 0; }
+  }
+  .sheet-anim { animation: slideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
+  .modal-anim { animation: popModal 0.22s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+  .float-badge {
+    position: fixed;
+    z-index: 100;
+    pointer-events: none;
+    font-weight: 900;
+    font-size: 0.82rem;
+    padding: 5px 12px;
+    border-radius: 999px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+    animation: floatBadge 1.1s ease-out forwards;
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+// =========================================================================
+// 1. OS 6 MORADORES DA REPÚBLICA E SEUS EVENTOS ESPECÍFICOS (10 CADA = 60 TOTAL)
+// =========================================================================
+
+// Função auxiliar para mapear estatísticas dos eventos originais para os atributos do jogo (m, p, s, d, h)
+// p = Carreira/Reputação/Inteligência, d = Felicidade/Diversão, m = Dinheiro, h = Saúde, s = Social
+function mapStat(stat, val) {
+  const norm = stat.toLowerCase().trim();
+  if (norm.includes("carreira") || norm.includes("reputação") || norm.includes("inteligência")) return { p: val };
+  if (norm.includes("felicidade") || norm.includes("diversão")) return { d: val };
+  if (norm.includes("dinheiro")) return { m: val * 10 };
+  if (norm.includes("saúde")) return { h: val };
+  return { d: val };
+}
+
+function parseEffects(effStr) {
+  const clean = effStr.replace(/[\(\)]/g, "");
+  const parts = clean.split("|");
+  const res = {};
+  parts.forEach(p => {
+    const m = p.trim().match(/([A-Za-zãéíóúÁÉÍÓÚç]+)\s*([\+\-]\d+)%/);
+    if (m) {
+      const obj = mapStat(m[1], parseInt(m[2], 10));
+      Object.assign(res, obj);
+    }
+  });
+  return res;
+}
+
+const ALL_CAREER_EVENTS = {
+  // 0. ADVOGADA (Índice 0 em P)
+  0: [
+    {
+      title: "Confusão na Audiência",
+      desc: "Você foi confundida com a ré no meio da audiência porque usou a mesma cor de terninho da acusada e sentou na cadeira errada.",
+      opts: [
+        { label: "Pedir desculpas com bom humor e trocar de lugar rapidamente", fx: { p: 5, d: 5 }, res: "O juiz dá um sorriso e o clima tenso da sala alivia." },
+        { label: "Fingir que sentou ali de propósito para testar a atenção do tribunal", fx: { p: -15 }, res: "O juiz acha arrogante e já começa a audiência mal-humorado com você." },
+        { label: "Ficar paralisada de vergonha e gaguejar na abertura", fx: { p: -10, d: -10 }, res: "Você perde a confiança inicial do seu cliente." }
+      ]
+    },
+    {
+      title: "Pagamento Inusitado",
+      desc: "Seu cliente puxou um maço de dinheiro amassado de dentro da meia no meio da reunião e perguntou se 'isso resolve o processo'.",
+      opts: [
+        { label: "Recusar imediatamente e encerrar o contrato", fx: { p: 10, m: -100 }, res: "Você mantém sua ética intacta, mas perde o pagamento da causa." },
+        { label: "Explicar que honorários só via transferência e nota fiscal", fx: { m: 200, p: 5 }, res: "O cliente aceita formalizar o pagamento legalmente." },
+        { label: "Pegar o dinheiro e guardar na gaveta sem recibo", fx: { m: -400, p: -30 }, res: "A Receita Federal cruza seus dados meses depois e você leva uma multa pesada." }
+      ]
+    },
+    {
+      title: "Juiz Adormecido",
+      desc: "O juiz caiu no sono durante a sua sustentação oral e acordou assustado indeferindo o pedido sem saber do que se tratava.",
+      opts: [
+        { label: "Pedir esclarecimento com elegância e resumir o ponto principal", fx: { p: 25 }, res: "O juiz fica constrangido, pede desculpas e reconsidera a decisão." },
+        { label: "Bater na mesa e exigir respeito", fx: { p: -20, d: -15 }, res: "Você leva uma advertência formal por desacato e perde o processo." },
+        { label: "Fingir que nada aconteceu e entrar com recurso depois", fx: { p: -5, m: 50 }, res: "Você evita atrito no tribunal, mas seu cliente acha que você foi passiva." }
+      ]
+    },
+    {
+      title: "Caso de Divórcio Insólito",
+      desc: "Você descobriu no meio do divórcio litigioso que o marido e a esposa estavam tendo um caso secreto um com o outro pelas costas dos advogados.",
+      opts: [
+        { label: "Chamar os dois para uma reunião de conciliação e encerrar o litígio", fx: { p: 25 }, res: "Eles se reconciliam oficialmente e elogiam sua sensibilidade." },
+        { label: "Fingir que não sabe de nada e continuar cobrando pelas audiências", fx: { m: 150, p: -30 }, res: "Você ganha dinheiro extra, mas depois eles descobrem e processam você." },
+        { label: "Contar tudo para o advogado da outra parte e rir da situação", fx: { p: 10, d: 10 }, res: "Vocês dois encerram o caso juntos e viram parceiros de negócios." }
+      ]
+    },
+    {
+      title: "Áudio de Madrugada",
+      desc: "Um cliente mandou um áudio de 14 minutos chorando às 2h da manhã porque o vizinho podou a árvore dele sem autorização.",
+      opts: [
+        { label: "Ouvir tudo no dia seguinte no horário comercial e cobrar consulta extra", fx: { m: 100, h: 5 }, res: "Você impõe limites saudáveis e ainda monetiza o atendimento." },
+        { label: "Responder na hora de madrugada e passar duas horas acalmando o cliente", fx: { h: -15, p: 10 }, res: "Ele vira seu fã fiel, mas você perde a noite de sono." },
+        { label: "Mandar apenas um emoji de joinha às 7h da manhã", fx: { p: -15, m: -100 }, res: "O cliente fica furioso e troca de escritório." }
+      ]
+    },
+    {
+      title: "Intimação Inusitada",
+      desc: "Você recebeu uma intimação judicial movida por um ex-cliente que está processando você por 'não ter previsto o futuro'.",
+      opts: [
+        { label: "Fazer sua própria defesa usando argumentos irônicos e técnicos", fx: { p: 15, d: 15 }, res: "O juiz extingue o processo na hora e condena o autor por má-fé." },
+        { label: "Contratar um colega renomado para defender você", fx: { m: -150, h: 5 }, res: "Custa caro, mas você não perde tempo nem energia com o absurdo." },
+        { label: "Ignorar a intimação achando que é pegadinha", fx: { m: -300, p: -20 }, res: "Você perde o prazo de defesa por revelia e tem que pagar indenização." }
+      ]
+    },
+    {
+      title: "Erro de Protocolo",
+      desc: "O estagiário protocolou a petição errada e anexou a lista de compras do supermercado dele no processo milionário da empresa.",
+      opts: [
+        { label: "Peticionar imediatamente pedindo o desentranhamento por erro material", fx: { p: 5, h: -5 }, res: "O juiz aceita a correção com bom humor e o caso segue normal." },
+        { label: "Demitir o estagiário na frente de todo o escritório", fx: { p: -15, d: -10 }, res: "O clima da equipe fica péssimo e você ganha fama de chefe tóxica." },
+        { label: "Tentar fingir que a lista era uma 'prova psicológica' da defesa", fx: { m: -250, p: -15 }, res: "O juiz aplica multa por litigância de má-fé." }
+      ]
+    },
+    {
+      title: "Defesa Inusitada",
+      desc: "Um mafioso local ofereceu o triplo dos seus honorários para você defender o papagaio dele que xingou um fiscal da prefeitura.",
+      opts: [
+        { label: "Aceitar o caso e fazer uma defesa brilhante sobre liberdade de expressão animal", fx: { m: 350, p: 20 }, res: "Você ganha a causa, fica famosa na mídia e enche o bolso." },
+        { label: "Recusar educadamente alegando agenda lotada", fx: { d: 10, p: 5 }, res: "O mafioso respeita sua postura e manda uma cesta de vinhos caros de presente." },
+        { label: "Aceitar o dinheiro e não aparecer na audiência", fx: { h: -20, d: -30 }, res: "Você acorda no dia seguinte com a cabeça de um boneco de pelúcia na porta de casa." }
+      ]
+    },
+    {
+      title: "Imprevisto no Júri",
+      desc: "Seu terno rasgou bem na costura de trás segundos antes de você levantar para falar no tribunal do júri.",
+      opts: [
+        { label: "Pedir cinco minutos de intervalo alegando mal-estar súbito e arrumar com grampeador", fx: { p: 20 }, res: "Ninguém percebe e você faz um discurso impecável." },
+        { label: "Levantar e falar normalmente andando de costas para a plateia", fx: { p: -15, d: -15 }, res: "Todos percebem o rasgo e você vira meme nos grupos jurídicos." },
+        { label: "Fazer uma piada rápida sobre o imprevisto antes de começar", fx: { p: 15, d: 10 }, res: "Os jurados simpatizam com sua naturalidade e dão ganho de causa." }
+      ]
+    },
+    {
+      title: "Consultoria na Blitz",
+      desc: "Você foi parada em uma blitz policial e o guarda pediu consultoria jurídica gratuita sobre a pensão alimentícia dele antes de liberar seu carro.",
+      opts: [
+        { label: "Dar uma orientação completa com paciência e entregar seu cartão", fx: { m: 150, p: 10 }, res: "Ele libera você na hora e vira seu cliente na semana seguinte." },
+        { label: "Dizer que consulta custa R$ 400 a hora e exigir o documento de volta", fx: { d: -15, m: -100 }, res: "O guarda revistou o carro inteiro procurando qualquer irregularidade." },
+        { label: "Inventar qualquer resposta rápida só para ir embora logo", fx: { p: -30 }, res: "Meses depois ele aparece no seu escritório cobrando o prejuízo do conselho errado." }
+      ]
+    }
+  ],
+
+  // 1. JOGADOR DE FUTSAL (Índice 1 em P)
+  1: [
+    {
+      title: "Carrinho no Goleiro",
+      desc: "O ginásio estava tão úmido que o taco da quadra virou sabão, você escorregou sozinho no contra-ataque e deu um carrinho no próprio goleiro.",
+      opts: [
+        { label: "Levantar rápido, pedir desculpas ao goleiro e voltar marcando", fx: { p: 10 }, res: "O goleiro entende o piso liso e o time segura o resultado." },
+        { label: "Ficar deitado fingindo lesão grave para disfarçar a vergonha", fx: { p: -15, d: -10 }, res: "O médico entra em quadra e percebe que você não tem nada." },
+        { label: "Gritar reclamando da limpeza da quadra com o mesário", fx: { p: -10, d: -10 }, res: "Você leva cartão amarelo por reclamação desnecessária." }
+      ]
+    },
+    {
+      title: "Café do Presidente",
+      desc: "A bola estourou no meio de um chute forte e o pedaço de couro acertou em cheio o café do presidente do clube na arquibancada.",
+      opts: [
+        { label: "Ir até a arquibancada no intervalo pedir desculpas e pagar outro café", fx: { p: 25 }, res: "Ele elogia a potência do seu chute e dá risada da situação." },
+        { label: "Fingir que não viu e sair correndo para o vestiário", fx: { p: -15, m: -100 }, res: "Ele fica irritado com a falta de educação e congela sua renovação." },
+        { label: "Comemorar como se tivesse feito um golaço", fx: { p: 20, d: 15 }, res: "A torcida vibra com a irreverência e você vira ídolo da galera." }
+      ]
+    },
+    {
+      title: "Apagão na Final",
+      desc: "A luz do ginásio caiu faltando 3 segundos para acabar a final, quando você estava cara a cara sem goleiro para fazer o gol do título.",
+      opts: [
+        { label: "Aceitar a decisão da arbitragem de reiniciar o lance com bola ao chão", fx: { p: 25, d: 30 }, res: "Você rouba a bola na disputa e faz o gol do título na raça." },
+        { label: "Chutar a bola no escuro mesmo assim e comemorar gritando", fx: { d: -15, p: -5 }, res: "O árbitro anula o lance e te dá cartão amarelo." },
+        { label: "Iniciar uma confusão generalizada exigindo o título imediato", fx: { p: -55 }, res: "O jogo é suspenso e seu time perde os pontos no tribunal." }
+      ]
+    },
+    {
+      title: "Tênis Apertado",
+      desc: "Você esqueceu o tênis de quadra em casa e teve que jogar o primeiro tempo inteiro com o tênis emprestado dois números menor do roupeiro.",
+      opts: [
+        { label: "Aguentar a dor nos dedos e jogar simples de primeira", fx: { h: -10, p: 15 }, res: "Você dá duas assistências mesmo mancando e ganha o respeito do elenco." },
+        { label: "Pedir substituição com dois minutos de jogo alegando dor muscular", fx: { p: -25 }, res: "O técnico descobre a mentira no vestiário e te coloca no banco." },
+        { label: "Mandar um amigo buscar seu tênis de moto urgente", fx: { m: -50, p: 15 }, res: "Ele chega no intervalo e você destrói no segundo tempo." }
+      ]
+    },
+    {
+      title: "Drible do Vira-Lata",
+      desc: "Um cachorro vira-lata invadiu a quadra, roubou a bola do jogo e driblou o time inteiro por três minutos seguidos.",
+      opts: [
+        { label: "Pegar o cachorro no colo com carinho e levar até a lateral", fx: { p: 30, m: 150 }, res: "O vídeo viraliza mundialmente e você ganha novos patrocinadores." },
+        { label: "Tentar dar um drible da vaca no cachorro para recuperar a bola", fx: { p: -10, d: 5 }, res: "O cachorro passa por baixo das suas pernas e a torcida inteira ri de você." },
+        { label: "Ficar irritado e tentar espantar o animal gritando", fx: { p: -25, d: -15 }, res: "A torcida vaia você até o final da partida." }
+      ]
+    },
+    {
+      title: "Goleiro-Linha Desastroso",
+      desc: "O técnico mandou você entrar como goleiro-linha, você perdeu a bola no meio da quadra e tomou um gol do outro lado sem ninguém na meta.",
+      opts: [
+        { label: "Assumir o erro, pedir a bola de novo e empatar o jogo no lance seguinte", fx: { p: 35 }, res: "Você mostra personalidade gigante e salva o time." },
+        { label: "Culpar o companheiro que deu o passe forte demais", fx: { p: -20, d: -10 }, res: "O clima no vestiário azeda e o grupo se divide." },
+        { label: "Tirar a camisa de goleiro-linha e sair de quadra sem autorização", fx: { p: -30, m: -150 }, res: "Você é multado pela diretoria e afastado por indisciplina." }
+      ]
+    },
+    {
+      title: "Provocação da Torcida",
+      desc: "A torcida adversária descobriu o nome da sua mãe e passou os 40 minutos cantando músicas personalizadas toda vez que você tocava na bola.",
+      opts: [
+        { label: "Usar a provocação como combustível, fazer um hat-trick e mandar beijo para a arquibancada", fx: { p: 25, d: 25 }, res: "Você cala o ginásio inteiro com classe." },
+        { label: "Perder a cabeça e fazer gestos obscenos para a torcida", fx: { p: -35 }, res: "Você é expulso direto e pega quatro jogos de suspensão." },
+        { label: "Entrar na pilha e errar todos os passes simples do jogo", fx: { p: -10, d: -15 }, res: "O técnico substitui você ainda no primeiro tempo." }
+      ]
+    },
+    {
+      title: "Queimadura de Joelho",
+      desc: "Você foi fazer uma comemoração deslizando de joelhos, mas o piso era áspero e você queimou as duas pernas na hora.",
+      opts: [
+        { label: "Aguentar a ardência com gelo no intervalo e voltar para o segundo tempo", fx: { h: -10, p: 15 }, res: "A torcida aplaude sua raça e dedicação." },
+        { label: "Sair chorando de dor direto para o vestiário", fx: { h: -10, p: -15 }, res: "Você vira piada nos programas esportivos da semana." },
+        { label: "Transformar a queimadura em marca registrada e criar uma linha de joelheiras", fx: { m: 150, p: 10 }, res: "O negócio dá certo e rende uma renda extra curiosa." }
+      ]
+    },
+    {
+      title: "Expulsão por Engano",
+      desc: "O árbitro expulsou você por engano porque confundiu o número da sua camisa com o do pivô que xingou ele.",
+      opts: [
+        { label: "Mostrar o número nas costas com calma e pedir para ele conferir com o mesário", fx: { p: 15 }, res: "Ele reconhece o erro, anula o cartão e você continua jogando." },
+        { label: "Sair xingando o árbitro agora de verdade já que estava expulso mesmo", fx: { p: -45 }, res: "Você transforma um erro dele em uma suspensão real de seis jogos." },
+        { label: "Sair de quadra em silêncio e deixar o pivô culpado resolver", fx: { p: 10, d: 5 }, res: "O pivô confessa o erro e o árbitro chama você de volta." }
+      ]
+    },
+    {
+      title: "Lambreta Falhada",
+      desc: "Um olheiro de um time da Espanha apareceu na arquibancada, você tentou dar uma lambreta para impressionar e caiu sentado em cima da bola.",
+      opts: [
+        { label: "Levantar rindo, jogar simples e dar três assistências perfeitas", fx: { p: 25, m: 200 }, res: "O olheiro elogia sua inteligência tática e pede seu contato." },
+        { label: "Tentar dar outra lambreta dois minutos depois para 'provar que sabe'", fx: { p: -35 }, res: "Você erra de novo e o técnico te tira do jogo." },
+        { label: "Fingir cãibra imediata para disfarçar a lambreta errada", fx: { p: -25 }, res: "O médico te tira de maca e o olheiro vai embora desapontado." }
+      ]
+    }
+  ],
+
+  // 2. PROGRAMADOR FRONTEND (Índice 2 em P)
+  2: [
+    {
+      title: "Mudança de Última Hora",
+      desc: "O cliente pediu para 'aumentar o logo em 15% e deixar o botão mais agressivo' faltando dez minutos para o lançamento oficial do site.",
+      opts: [
+        { label: "Fazer exatamente o que ele pediu e lançar no prazo", fx: { m: 150, d: 5 }, res: "O site fica visualmente duvidoso, mas o cliente paga feliz da vida." },
+        { label: "Apresentar argumentos de UX e propor uma alternativa equilibrada", fx: { p: 20 }, res: "O cliente aceita sua visão profissional e elogia sua postura." },
+        { label: "Recusar a alteração e dizer que ele não entende de design", fx: { m: -200, p: -15 }, res: "O cliente cancela o contrato e exige reembolso parcial." }
+      ]
+    },
+    {
+      title: "Div Descentralizada",
+      desc: "Você centralizou uma div perfeitamente no seu monitor, mas no celular do diretor da empresa o botão apareceu flutuando em cima do rosto dele.",
+      opts: [
+        { label: "Ajustar o CSS responsivo imediatamente e enviar o link atualizado", fx: { p: 15 }, res: "Ele agradece a agilidade e elogia seu atendimento." },
+        { label: "Dizer que o problema é o modelo do celular antigo dele", fx: { p: -15, d: -15 }, res: "Ele fica ofendido e manda você refazer o layout inteiro do zero." },
+        { label: "Tirar o botão da versão mobile e fingir que era uma 'exclusividade desktop'", fx: { p: -20, m: -100 }, res: "Os usuários mobile reclamam e as vendas caem pela metade." }
+      ]
+    },
+    {
+      title: "Comic Sans Rosa",
+      desc: "Uma atualização automática de biblioteca CSS quebrou e transformou todas as fontes do sistema bancário em Comic Sans rosa choque.",
+      opts: [
+        { label: "Reverter a versão da biblioteca imediatamente via rollback", fx: { p: 15 }, res: "O problema dura apenas 4 minutos e quase ninguém percebe." },
+        { label: "Tentar corrigir escrevendo CSS por cima em pânico", fx: { p: -15, h: -15 }, res: "Você quebra o layout mobile e piora a situação por duas horas." },
+        { label: "Dizer nas redes sociais que é uma 'campanha de conscientização'", fx: { p: 20, d: 15 }, res: "A desculpa cola surpreendentemente bem e vira caso de marketing." }
+      ]
+    },
+    {
+      title: "Protótipo Impossível",
+      desc: "O designer entregou um protótipo impossível com animações 3D pesadas e exigiu que rodasse liso em um celular de 2015 sem internet.",
+      opts: [
+        { label: "Negociar uma versão simplificada para aparelhos fracos e manter o 3D nos potentes", fx: { p: 30 }, res: "O projeto fica rápido e bonito em todos os dispositivos." },
+        { label: "Colocar todas as animações do jeito que ele pediu", fx: { p: -25 }, res: "O celular de teste da diretoria esquenta tanto que trava e reinicia sozinho." },
+        { label: "Substituir as animações 3D por um GIF estático sem avisar ninguém", fx: { p: -15, d: -10 }, res: "O designer descobre no lançamento e vocês brigam feio na reunião." }
+      ]
+    },
+    {
+      title: "Console.log em Produção",
+      desc: "Você esqueceu um console.log('teste maluco') em produção e um usuário tirou print e viralizou nas redes sociais.",
+      opts: [
+        { label: "Fazer deploy rápido removendo a linha e entrar na brincadeira nas redes", fx: { p: 15, d: 10 }, res: "O público acha engraçado e o site ganha tráfego gratuito." },
+        { label: "Culpar o estagiário na frente do gerente", fx: { p: -30 }, res: "A equipe perde a confiança em você e o clima pesa." },
+        { label: "Negar que o print é real e acusar o usuário de montagem", fx: { p: -50 }, res: "Outros usuários conferem o código-fonte e expõem sua mentira." }
+      ]
+    },
+    {
+      title: "Nome Gigante",
+      desc: "O usuário digitou um texto de 500 palavras no campo 'Primeiro Nome' e quebrou o layout da página inteira em cascata.",
+      opts: [
+        { label: "Adicionar limite de caracteres e reticências automáticas no texto", fx: { p: 20 }, res: "O layout fica blindado contra qualquer usuário criativo." },
+        { label: "Excluir a conta do usuário para 'limpar a tela'", fx: { p: -30 }, res: "O usuário reclama no Reclame Aqui e a empresa precisa pedir desculpas públicas." },
+        { label: "Deixar quebrado porque 'ninguém tem um nome desse tamanho'", fx: { p: -25, d: -15 }, res: "Na semana seguinte o maior influenciador do país cria uma conta assim e mostra ao vivo." }
+      ]
+    },
+    {
+      title: "Zoom do Navegador",
+      desc: "Você passou seis horas caçando um erro visual e descobriu que era apenas o zoom do seu navegador que estava em 110%.",
+      opts: [
+        { label: "Voltar para 100%, respirar fundo e ir tomar um café para rir da situação", fx: { d: 10, h: 5 }, res: "Você recupera a sanidade mental e termina o dia leve." },
+        { label: "Desfazer todas as alterações que você fez nas últimas seis horas", fx: { h: -15, d: -15 }, res: "Você percebe que estragou partes que estavam boas e precisa refazer tudo." },
+        { label: "Contar no grupo da equipe para alertar os colegas", fx: { p: 5, d: 10 }, res: "Todos confessam que já passaram por isso e o clima fica ótimo." }
+      ]
+    },
+    {
+      title: "Botões Daltônicos",
+      desc: "Um daltonismo não detectado no cliente fez ele reclamar que o botão verde de 'Confirmar' era idêntico ao botão vermelho de 'Excluir Conta'.",
+      opts: [
+        { label: "Adicionar ícones claros e rótulos de texto além das cores", fx: { p: 25 }, res: "Você melhora a acessibilidade do sistema inteiro e ganha elogios." },
+        { label: "Discutir dizendo que as cores estão óbvias para qualquer pessoa", fx: { p: -25, m: -200 }, res: "O cliente se sente discriminado e cancela o contrato na hora." },
+        { label: "Pintar todos os botões de azul e deixar o usuário adivinhar", fx: { p: -45 }, res: "A taxa de exclusão acidental de contas sobe 400% em um dia." }
+      ]
+    },
+    {
+      title: "Selfie de Perfil",
+      desc: "A imagem de perfil padrão do sistema foi substituída por engano pela sua própria selfie fazendo careta na webcam.",
+      opts: [
+        { label: "Trocar a imagem imediatamente e limpar o cache do servidor", fx: { d: 5, p: 5 }, res: "Apenas três usuários viram e acharam que era um easter egg divertido." },
+        { label: "Deixar a selfie lá por uma semana para ver quem percebe", fx: { d: 15, p: -5 }, res: "Você vira figurinha oficial do WhatsApp da empresa inteira." },
+        { label: "Dizer que o sistema foi invadido e acionar a equipe de segurança", fx: { p: -30 }, res: "Eles descobrem que o envio veio do seu próprio IP e você passa vergonha." }
+      ]
+    },
+    {
+      title: "Navegador Obscuro",
+      desc: "O site ficou perfeito em todos os navegadores, exceto no navegador obscuro que o dono da empresa usa no tablet antigo dele.",
+      opts: [
+        { label: "Criar uma regra específica só para o dispositivo dele funcionar", fx: { m: 200, p: 15 }, res: "Ele fica encantado com a fluidez e dá um aumento para a equipe." },
+        { label: "Comprar um tablet novo e dar de presente para ele na reunião", fx: { m: -150, p: 15 }, res: "Ele adora o gesto, mas o financeiro não reembolsa você." },
+        { label: "Explicar tecnicamente que o navegador dele foi descontinuado em 2016", fx: { d: -10, h: -10 }, res: "Ele fica teimoso e exige que você faça funcionar mesmo assim." }
+      ]
+    }
+  ],
+
+  // 3. ENGENHEIRO (Índice 3 em P)
+  3: [
+    {
+      title: "Betoneira Presa",
+      desc: "Você chegou na obra de manhã e descobriu que os pedreiros construíram a parede perfeitamente, mas deixaram a betoneira trancada do lado de dentro sem porta.",
+      opts: [
+        { label: "Mandar quebrar a parede imediatamente e assumir o custo do material", fx: { m: -100, p: 5 }, res: "A obra atrasa dois dias, mas a estrutura fica perfeita." },
+        { label: "Tentar tirar a betoneira desmontando ela inteira por uma janela pequena", fx: { m: -250, d: -15 }, res: "Vocês gastam o triplo do tempo e estragam a máquina." },
+        { label: "Rebocar a betoneira dentro da parede como 'enchimento estrutural'", fx: { p: -75 }, res: "Meses depois a parede racha e você responde no conselho de classe." }
+      ]
+    },
+    {
+      title: "Erro de Conversão",
+      desc: "Um erro de conversão entre polegadas e centímetros fez a peça industrial chegar dez vezes menor do que o tamanho da máquina.",
+      opts: [
+        { label: "Assumir o erro ao fornecedor e negociar fabricação expressa", fx: { m: -150, p: 10 }, res: "Você perde sua margem de lucro, mas salva o cronograma da fábrica." },
+        { label: "Tentar adaptar a peça usando solda improvisada na oficina", fx: { m: -450, p: -25 }, res: "A peça quebra no primeiro teste e danifica o eixo principal." },
+        { label: "Dizer que o fornecedor leu o projeto errado e exigir troca grátis", fx: { p: -50 }, res: "A perícia prova que o erro estava no seu desenho técnico." }
+      ]
+    },
+    {
+      title: "Fiscalização e Churrasco",
+      desc: "A fiscalização apareceu de surpresa no canteiro exatamente no momento em que o mestre de obras estava fazendo um churrasco improvisado na laje.",
+      opts: [
+        { label: "Receber o fiscal com cordialidade e apresentar toda a documentação em dia", fx: { p: 10, d: 10 }, res: "Ele releva o churrasco na hora do almoço e aprova a vistoria." },
+        { label: "Mandar os pedreiros esconderem a churrasqueira atrás dos sacos de cimento", fx: { m: -200, p: -15 }, res: "A fumaça denuncia tudo e a obra leva multa por tentativa de fraude." },
+        { label: "Oferecer um espetinho e uma água gelada ao fiscal antes de começar", fx: { d: 15, p: 5 }, res: "Ele aceita a água, elogia a organização do canteiro e libera a obra." }
+      ]
+    },
+    {
+      title: "Piscina na Cobertura",
+      desc: "O cliente decidiu mudar o lugar da piscina do térreo para a cobertura depois que a estrutura inteira já estava concretada.",
+      opts: [
+        { label: "Apresentar um novo orçamento de reforço estrutural e aditivo de prazo", fx: { m: 250, p: 15 }, res: "O cliente entende o custo do peso da água e aprova a mudança." },
+        { label: "Aceitar fazer a mudança sem reforço para não perder o cliente", fx: { p: -40, h: -20 }, res: "Você corre o risco gravíssimo de colapso estrutural." },
+        { label: "Sugerir uma banheira de hidromassagem leve no lugar da piscina", fx: { p: 15, d: 10 }, res: "O cliente adora a ideia econômica e elogia sua criatividade." }
+      ]
+    },
+    {
+      title: "Sítio Arqueológico",
+      desc: "Você assinou a ART de um projeto simples e descobriu no dia seguinte que o terreno fica bem em cima de um sítio arqueológico protegido.",
+      opts: [
+        { label: "Paralisar a escavação na hora e notificar os órgãos de patrimônio", fx: { p: 30 }, res: "Você evita multa milionária e ganha respeito pela responsabilidade." },
+        { label: "Mandar enterrar os cacos de cerâmica antigos e continuar a obra", fx: { p: -50, m: -400 }, res: "Uma denúncia anônima embarga a obra e você responde processo criminal." },
+        { label: "Renunciar à responsabilidade técnica e sair do projeto", fx: { m: -150, d: -5 }, res: "Você escapa do problema legal, mas perde os honorários da obra." }
+      ]
+    },
+    {
+      title: "Enxame de Abelhas",
+      desc: "Um enxame de abelhas africanas fez colmeia dentro do quadro elétrico principal da fábrica no dia da inauguração.",
+      opts: [
+        { label: "Adiar o acionamento e chamar apicultores especializados para remover com segurança", fx: { p: 20 }, res: "Ninguém se machuca e a inauguração ocorre duas horas depois." },
+        { label: "Tentar espantar as abelhas jogando fumaça de papelão queimado", fx: { h: -30, d: -15 }, res: "Você leva 15 ferroadas e vai parar no pronto-socorro." },
+        { label: "Ligar a chave geral mesmo assim esperando que o barulho assuste elas", fx: { p: -60 }, res: "O enxame ataca os convidados da inauguração em pânico." }
+      ]
+    },
+    {
+      title: "Bloqueio na Delegacia",
+      desc: "O fornecedor entregou 50 toneladas de material no endereço errado e bloqueou a rua inteira da delegacia do bairro.",
+      opts: [
+        { label: "Contratar guindastes e caminhões extras na hora para liberar a rua rápido", fx: { m: -150, p: 10 }, res: "O delegado agradece a agilidade e não aplica multa." },
+        { label: "Desligar o telefone e dizer que o problema é só da transportadora", fx: { p: -20, m: -200 }, res: "A polícia apreende a carga e sua obra fica parada por duas semanas." },
+        { label: "Ir até a delegacia negociar prazo de 24 horas para retirada com calmaria", fx: { p: 20 }, res: "Eles aceitam o acordo e você resolve tudo sem gastar extra." }
+      ]
+    },
+    {
+      title: "Parafuso Sobrando",
+      desc: "Durante o teste de carga da ponte/estrutura, um parafuso misterioso sobrou na sua mão depois que tudo já estava montado.",
+      opts: [
+        { label: "Interromper o teste e revisar cada ponto de fixação do projeto", fx: { p: 25 }, res: "Você encontra onde ele faltava antes de qualquer acidente acontecer." },
+        { label: "Guardar o parafuso no bolso e fingir que era peça sobressalente", fx: { h: -20, p: -15 }, res: "A estrutura faz um estalo assustador no teste e você passa mal de nervoso." },
+        { label: "Perguntar ao estagiário se ele sabe de onde saiu aquela peça", fx: { p: 5, d: 5 }, res: "Ele aponta exatamente o lugar que esqueceu de apertar." }
+      ]
+    },
+    {
+      title: "Prédio Voador",
+      desc: "O software de simulação travou e mostrou que o prédio vai sair voando se ventar a mais de 40 km/h.",
+      opts: [
+        { label: "Conferir as unidades de medida e descobrir um zero a mais na força do vento", fx: { p: 15 }, res: "Você corrige o parâmetro e valida o cálculo real com segurança." },
+        { label: "Entrar em pânico e mandar evacuar o canteiro de obras em dia de sol", fx: { p: -20, d: -15 }, res: "Todos acham que você enlouqueceu e sua autoridade cai." },
+        { label: "Ignorar o software e aprovar o projeto no olho", fx: { p: -15, m: -100 }, res: "O cliente exige o relatório técnico assinado e você trava na entrega." }
+      ]
+    },
+    {
+      title: "Confundido na Portaria",
+      desc: "Você foi confundido com o porteiro da obra pelo dono da construtora e recebeu ordens para abrir o portão para os caminhões.",
+      opts: [
+        { label: "Abrir o portão com simpatia e se apresentar logo em seguida como engenheiro chefe", fx: { p: 25 }, res: "Ele fica sem graça, ri da humildade e elogia sua postura." },
+        { label: "Responder com arrogância mostrando o crachá na cara dele", fx: { p: -35 }, res: "Ele não gosta da sua falta de educação e corta você do próximo projeto." },
+        { label: "Ficar trabalhando na portaria o dia inteiro só para ver até onde vai", fx: { d: 15, p: -5 }, res: "No fim do dia ele descobre e acha a situação hilária." }
+      ]
+    }
+  ],
+
+  // 4. JOGADOR DE CAMPO (Índice 4 em P)
+  4: [
+    {
+      title: "Paradinha Desastrosa",
+      desc: "Você foi bater um pênalti decisivo nos acréscimos, deu uma paradinha exagerada e o goleiro segurou a bola com uma mão só em pé.",
+      opts: [
+        { label: "Levantar a cabeça, buscar a bola no escanteio seguinte e dar a assistência do gol da vitória", fx: { p: 25 }, res: "Você compensa o erro com garra." },
+        { label: "Ficar de joelhos no gramado lamentando até o apito final", fx: { p: -20, d: -15 }, res: "A torcida te apupa e a imprensa critica sua imaturidade." },
+        { label: "Dizer na entrevista que o gramado tinha um buraco exatamente onde você pisou", fx: { p: -25 }, res: "Ninguém acredita na desculpa e você vira meme." }
+      ]
+    },
+    {
+      title: "Transferência Congelante",
+      desc: "O seu empresário acertou sua transferência para um time da segunda divisão da Islândia no meio do inverno congelante.",
+      opts: [
+        { label: "Aceitar o desafio, vestir três camadas de segunda pele e virar o artilheiro do campeonato", fx: { m: 300, p: 20 }, res: "Você ganha destaque internacional e atrai times maiores." },
+        { label: "Recusar o contrato na hora e rescindir com o empresário", fx: { m: -200, p: -15 }, res: "Você fica sem clube por seis meses treinando sozinho no parque." },
+        { label: "Exigir um aquecedor individual no banco de reservas e moradia de luxo", fx: { p: -15, m: -100 }, res: "O clube acha a exigência absurda e cancela a proposta." }
+      ]
+    },
+    {
+      title: "Queda no Fosso",
+      desc: "Durante a comemoração do gol, você deu um salto mortal, mas calculou mal o espaço e caiu dentro do fosso do estádio.",
+      opts: [
+        { label: "Pedir ajuda aos maqueiros para subir, rir da situação e comemorar com a torcida", fx: { p: 25, d: 20 }, res: "O vídeo bate milhões de visualizações e você vira o atleta mais simpático da rodada." },
+        { label: "Ficar caído no fundo do fosso esperando a partida terminar", fx: { p: -20, d: -15 }, res: "Seu time joga com um a menos e toma o gol de empate." },
+        { label: "Usar o imprevisto para alegar contusão e ser substituído", fx: { p: -30 }, res: "O exame médico mostra que você não teve nada e o técnico te cobra postura." }
+      ]
+    },
+    {
+      title: "Fã Mirim no Gramado",
+      desc: "Um torcedor mirim invadiu o campo chorando apenas para pedir a sua camisa no final da partida.",
+      opts: [
+        { label: "Entregar a camisa com um abraço, tirar foto e dar um par de chuteiras de presente", fx: { p: 35, d: 25 }, res: "O gesto comove o país inteiro e aumenta seu valor de mercado." },
+        { label: "Ignorar o menino e ir direto para o vestiário com medo de punição da arbitragem", fx: { p: -30, d: -15 }, res: "A imprensa pega pesado na crítica sobre sua falta de empatia." },
+        { label: "Entregar a camisa e pedir para o segurança acompanhar a criança com segurança", fx: { p: 15, d: 10 }, res: "Você faz a boa ação sem transformar em show." }
+      ]
+    },
+    {
+      title: "Aquecimento de Fachada",
+      desc: "O técnico mandou você aquecer aos 40 minutos do segundo tempo apenas para gastar o tempo de acréscimo e não te colocou em campo.",
+      opts: [
+        { label: "Aceitar a tática com profissionalismo e comemorar a vitória com o grupo no vestiário", fx: { p: 20 }, res: "O técnico elogia seu espírito de equipe na coletiva." },
+        { label: "Atirar o colete de aquecimento no rosto do auxiliar técnico e ir direto para o ônibus", fx: { m: -200, p: -25 }, res: "Você é multado em 20% do salário por indisciplina." },
+        { label: "Fazer corpo mole no aquecimento e demorar dez minutos para colocar a caneleira", fx: { p: -10, d: -5 }, res: "O juiz apita o fim do jogo antes de você entrar." }
+      ]
+    },
+    {
+      title: "Anti-Doping de Surpresa",
+      desc: "Você foi sorteado para o teste anti-doping surpresa logo após beber três litros de energético antes da partida.",
+      opts: [
+        { label: "Colaborar com todos os procedimentos e aguardar o resultado com tranquilidade", fx: { p: 10, h: 5 }, res: "O teste dá negativo para substâncias proibidas e você é liberado." },
+        { label: "Entrar em pânico e tentar trocar o frasco de coleta com o do companheiro", fx: { p: -75 }, res: "Você é suspenso preventivamente por conduta suspeita." },
+        { label: "Tentar subornar o fiscal do exame com um par de ingressos VIP", fx: { p: -30, m: -200 }, res: "O fiscal relata a tentativa na súmula e você responde a processo desportivo." }
+      ]
+    },
+    {
+      title: "Chuteira com Travas Erradas",
+      desc: "A marca patrocinadora de material esportivo enviou chuteiras com as travas erradas para um gramado totalmente encharcado.",
+      opts: [
+        { label: "Trocar as travas na oficina do clube minutos antes de entrar no campo", fx: { p: 35 }, res: "Você joga firme, não escorrega e marca dois gols de cabeça." },
+        { label: "Jogar com as chuteiras como vieram e escorregar em todos os lances decisivos", fx: { p: -20, h: -10 }, res: "Você falha na marcação do gol adversário." },
+        { label: "Recusar-se a entrar em campo enquanto não trouxerem o modelo correto", fx: { m: -250, p: -15 }, res: "O time entra com um jogador a menos e o patrocinador cancela o contrato." }
+      ]
+    },
+    {
+      title: "Promessa de Mala Branca",
+      desc: "O presidente do clube entrou no vestiário no intervalo prometendo um bônus de R$ 50 mil em dinheiro vivo para cada jogador se virassem o jogo.",
+      opts: [
+        { label: "Liderar a conversa tática com os companheiros, voltar com raça total e buscar a virada nos minutos finais", fx: { m: 500, p: 25 }, res: "Todos saem vitoriosos e com o bolso cheio." },
+        { label: "Ficar tão pressionado pelo dinheiro que erra passes bobos no segundo tempo", fx: { m: -100, d: -15 }, res: "Seu time toma mais dois gols e perde o bônus." },
+        { label: "Exigir o pagamento da metade do bônus antes de voltar para o segundo tempo", fx: { p: -25, m: -200 }, res: "O presidente se ofende com a falta de confiança e cancela a oferta." }
+      ]
+    },
+    {
+      title: "Viagem no Escuro",
+      desc: "Em um jogo fora de casa, a luz do ônibus da delegação quebrou e vocês viajaram seis horas no escuro total por estradas de terra.",
+      opts: [
+        { label: "Organizar uma roda de pagode usando os batuques do banco e descontrair a equipe", fx: { d: 20, p: 15 }, res: "A viagem voa, o grupo se une e ganha a partida no dia seguinte." },
+        { label: "Passar as seis horas reclamando da estrutura do clube nas redes sociais", fx: { p: -25 }, res: "A diretoria te adverte formalmente por expor a instituição." },
+        { label: "Tentar dormir no chão do corredor do ônibus", fx: { h: -15, p: -10 }, res: "Você acorda com dores nas costas e não consegue atuar no seu 100%." }
+      ]
+    },
+    {
+      title: "Jogo Festivo do Sertanejo",
+      desc: "Você foi convidado para participar do jogo festivo de fim de ano de um famoso cantor sertanejo transmitido em TV aberta.",
+      opts: [
+        { label: "Dar um espetáculo de simpatia, fazer jogadas bonitas com os artistas e doar sua camisa autografada para leilão beneficente", fx: { p: 30, d: 20 }, res: "Você ganha enorme carinho do público geral." },
+        { label: "Jogar com extrema virilidade e dar um carrinho duro no cantor anfitrião", fx: { p: -35, d: -20 }, res: "A torcida vaia, a transmissão critica e você é expulso do jogo festivo." },
+        { label: "Cobrar um cachê alto para comparecer ao evento beneficente", fx: { m: 150, p: -25 }, res: "A imprensa descobre a cobrança e sua imagem pública fica arranhada." }
+      ]
+    }
+  ],
+
+  // 5. PROGRAMADOR BACK-END (Índice 5 em P)
+  5: [
+    {
+      title: "DELETE Sem WHERE",
+      desc: "Você rodou um DELETE sem WHERE em produção na sexta-feira às 17h55 e o último backup válido é de três meses atrás.",
+      opts: [
+        { label: "Avisar o Tech Lead na hora e iniciar a recuperação pelos logs binários", fx: { h: -15, p: 10 }, res: "Vocês passam a madrugada recuperando os dados, mas sua honestidade salva o emprego." },
+        { label: "Desligar o computador, desligar o celular e ir dormir", fx: { p: -60, m: -300 }, res: "Na segunda-feira você é demitido por justa causa." },
+        { label: "Tentar reescrever os dados na mão antes que alguém perceba", fx: { h: -25, p: 10 }, res: "Você salva 85% da base na base do desespero puro." }
+      ]
+    },
+    {
+      title: "Incêndio no Data Center",
+      desc: "Um servidor físico pegou fogo literalmente no data center exatamente quando você ia subir a atualização mais importante do ano.",
+      opts: [
+        { label: "Acionar o plano de contingência e redirecionar o tráfego para a nuvem reserva", fx: { p: 25, m: 150 }, res: "O sistema volta em 15 minutos e você é promovido pela calma sob pressão." },
+        { label: "Correr até o data center com um extintor de incêndio na mão", fx: { h: -30, p: 20 }, res: "Você apaga o fogo, mas inala fumaça e vai parar no hospital." },
+        { label: "Postar uma foto do servidor pegando fogo no LinkedIn", fx: { p: -5 }, res: "O post viraliza, mas o CEO não acha a menor graça e te dá uma advertência." }
+      ]
+    },
+    {
+      title: "Código Legado Misterioso",
+      desc: "Você encontrou um comentário no código legado de 2011 escrito: 'Não apague essa linha vazia ou o sistema financeiro inteiro cai. Ninguém sabe por quê.'",
+      opts: [
+        { label: "Respeitar os antigos mestres, deixar a linha lá e adicionar mais um aviso", fx: { d: 5, p: 5 }, res: "O sistema continua funcionando perfeitamente sem dores de cabeça." },
+        { label: "Apagar a linha por puro ego técnico para 'limpar o código'", fx: { p: -60 }, res: "O sistema de pagamentos para de funcionar no país inteiro por quatro horas." },
+        { label: "Isolar o código em ambiente de teste para descobrir o mistério", fx: { p: 15, m: 150 }, res: "Você descobre uma falha oculta de memória e ganha um bônus pela refatoração." }
+      ]
+    },
+    {
+      title: "Hacker Benevolente",
+      desc: "Um hacker invadiu a API da empresa, mas em vez de roubar dados, ele apenas corrigiu um bug antigo e deixou um recado xingando sua arquitetura.",
+      opts: [
+        { label: "Fechar a brecha de segurança e reportar o incidente à diretoria", fx: { p: 25 }, res: "Eles elogiam sua transparência e liberam verba para segurança." },
+        { label: "Assumir a autoria da correção do bug na reunião semanal", fx: { p: -60 }, res: "Você ganha os créditos, mas o hacker volta semanas depois para expor a fraude." },
+        { label: "Rastrear o hacker e mandar mensagem pedindo dicas de código", fx: { m: 400, p: 15 }, res: "Vocês viram amigos online e ele te indica para uma vaga em dólar." }
+      ]
+    },
+    {
+      title: "Vazamento na AWS",
+      desc: "O estagiário subiu as chaves privadas da AWS em um repositório público do GitHub e mineraram R$ 80 mil em criptomoedas na conta da empresa.",
+      opts: [
+        { label: "Revogar as chaves em segundos e negociar o perdão da dívida com o suporte da AWS", fx: { p: 35 }, res: "Você consegue estornar 100% do valor e salva a empresa." },
+        { label: "Mandar o estagiário pagar a conta parcelada no cartão dele", fx: { p: -50 }, res: "O caso vaza na internet e a empresa sofre boicote de desenvolvedores." },
+        { label: "Fingir que não viu e deixar a fatura chegar no financeiro no fim do mês", fx: { p: -40, m: -200 }, res: "A empresa quase quebra e metade do time é demitido." }
+      ]
+    },
+    {
+      title: "Queda na Live do CEO",
+      desc: "O sistema inteiro caiu exatamente durante a transmissão ao vivo do CEO apresentando a plataforma para investidores.",
+      opts: [
+        { label: "Subir uma versão estática simulada em tempo real para salvar a apresentação", fx: { p: 30, m: 200 }, res: "Ninguém na plateia percebe e o CEO te agradece pessoalmente." },
+        { label: "Entrar na transmissão ao vivo e explicar os detalhes técnicos da falha", fx: { p: -40 }, res: "Os investidores ficam confusos e desistem do aporte financeiro." },
+        { label: "Desligar o roteador da sua casa e fingir que ficou sem internet", fx: { p: -10, d: -5 }, res: "Você escapa da bronca na hora, mas perde moral com a equipe." }
+      ]
+    },
+    {
+      title: "Servidor Sob a Mesa",
+      desc: "Você descobriu que um microsserviço crítico estava rodando há quatro anos em um computador velho esquecido embaixo da mesa da recepção.",
+      opts: [
+        { label: "Planejar a migração gradual para a nuvem no fim de semana", fx: { p: 20, m: 100 }, res: "Tudo ocorre sem interrupções e você ganha reconhecimento técnico." },
+        { label: "Puxar o cabo da tomada na hora para 'ver o que acontece'", fx: { p: -50 }, res: "A emissão de notas fiscais da empresa inteira trava na hora." },
+        { label: "Colocar um aviso 'NÃO DESLIGAR' e deixar lá", fx: { d: 5, p: -10 }, res: "O computador aguenta mais um ano até a faxineira esbarrar no fio." }
+      ]
+    },
+    {
+      title: "Emoji Proibido",
+      desc: "O banco de dados travou porque alguém cadastrou um emoji proibido no nome de usuário e quebrou toda a fila de processamento.",
+      opts: [
+        { label: "Limpar o registro corrompido manualmente e criar filtro de validação", fx: { p: 20 }, res: "O sistema volta ao ar em dez minutos e nunca mais quebra por isso." },
+        { label: "Banir o usuário para sempre e bloquear todos os emojis do sistema", fx: { p: 0 }, res: "Os usuários reclamam da falta de liberdade, mas o sistema fica estável." },
+        { label: "Reiniciar o servidor a cada cinco minutos esperando o erro passar sozinho", fx: { p: -25, h: -15 }, res: "A fila acumula milhões de erros e corrompe o banco inteiro." }
+      ]
+    },
+    {
+      title: "O Desafio COBOL",
+      desc: "Um recrutador ofereceu o dobro do seu salário, mas exigiu que você desse manutenção em um sistema escrito em COBOL de 1984.",
+      opts: [
+        { label: "Aceitar o desafio, comprar um livro antigo de COBOL e ficar rico", fx: { m: 500, d: -10 }, res: "O trabalho é monótono, mas sua conta bancária explode." },
+        { label: "Recusar a vaga para continuar trabalhando com tecnologias modernas", fx: { p: 10, d: 10 }, res: "Você ganha menos, mas mantém seu currículo atualizado no mercado." },
+        { label: "Aceitar a vaga e tentar reescrever o sistema inteiro em Python escondido", fx: { p: -30, m: -100 }, res: "Você quebra o sistema bancário central e é demitido na segunda semana." }
+      ]
+    },
+    {
+      title: "Sono no Teclado",
+      desc: "Você dormiu no teclado durante o home office e acordou com 4.000 linhas de caracteres aleatórios enviadas para revisão de código.",
+      opts: [
+        { label: "Cancelar o envio imediatamente e dizer que estava testando um gerador de massa de dados", fx: { p: 15 }, res: "A desculpa cola e todos elogiam sua iniciativa de testes." },
+        { label: "Confessar no chat da equipe que dormiu em cima da tecla 'J'", fx: { d: 15, h: 10 }, res: "Todos dão boas risadas e pedem para você tirar o resto do dia de folga." },
+        { label: "Tentar aprovar o código você mesmo e subir para produção", fx: { p: -45 }, res: "O sistema inteiro trava com erro de sintaxe na página inicial." }
+      ]
+    }
+  ]
+};
+
+const P = [
+  {
+    n: "Advogada", full: "Dra. Camila Mendes", e: "⚖️", c: "#8338ec",
+    trait: "Perfeccionista & Persuasiva",
+    favActCat: [1, 2],
+    favPetCat: 2,
+    car: ["Estagiária de Direito", "Advogada Associada", "Sócia do Escritório"],
+    pay: 190, w: "Audiência",
+    loja: [
+      ["Vade Mecum Digital", "📱", 400, { wk: .25 }, "+25% de ganho ao trabalhar"],
+      ["Cafeteira de Cápsula", "☕", 300, { sl: 15 }, "+15% de Energia ao dormir"]
+    ]
+  },
+  {
+    n: "Jogador de Futsal", full: "Lucas 'Falcãozinho'", e: "👟", c: "#0ea5e9",
+    trait: "Explosivo & Resenheiro",
+    favActCat: [3, 4],
+    favPetCat: 0,
+    car: ["Atleta Interclasses", "Ala da Liga Regional", "Craque de Salão"],
+    pay: 160, w: "Treino",
+    loja: [
+      ["Joelheira de Fibra de Carbono", "🦵", 350, { kn: 1 }, "Joelho nunca quebra no treino"],
+      ["Tênis de Marca", "👟", 250, { dd: 5 }, "Diversão cai 5% menos por dia"]
+    ]
+  },
+  {
+    n: "Programador Front-End", full: "Thiago 'Pixel Perfect'", e: "💻", c: "#ec4899",
+    trait: "Esteta & Criativo",
+    favActCat: [0, 4],
+    favPetCat: 3,
+    car: ["Alinhador de Botão", "Dev Front-End Júnior", "Tech Lead UI/UX"],
+    pay: 180, w: "Sprint",
+    loja: [
+      ["Monitor Ultrawide Curvo", "🖥️", 500, { dd: 5 }, "Diversão cai 5% menos por dia"],
+      ["Teclado Mecânico Barulhento", "⌨️", 350, { wk: .25 }, "+25% de ganho ao trabalhar"]
+    ]
+  },
+  {
+    n: "Engenheiro", full: "Rafael 'Planta Baixa'", e: "📐", c: "#f59e0b",
+    trait: "Prático & Gambiarreiro",
+    favActCat: [0, 2],
+    favPetCat: 4,
+    car: ["Calculador de Escada", "Engenheiro Júnior", "Diretor de Obras"],
+    pay: 180, w: "Obra",
+    loja: [
+      ["Cadeira de Massagem Reclinável", "💺", 400, { sl: 15 }, "+15% de Energia ao dormir"],
+      ["Calculadora que faz tudo", "🧮", 400, { wk: .25 }, "+25% de ganho ao trabalhar"]
+    ]
+  },
+  {
+    n: "Jogador de Campo", full: "Gabriel 'GB9'", e: "⚽", c: "#2b7de9",
+    trait: "Carismático & Ostentação",
+    favActCat: [3, 5],
+    favPetCat: 1,
+    car: ["Atacante de Várzea", "Promessa da Base", "Contrato no Exterior"],
+    pay: 165, w: "Treino",
+    loja: [
+      ["Chuteira de Ouro", "🥇", 450, { tp: .5 }, "+50% de progresso ao treinar"],
+      ["Corrente de Ouro Ostentação", "📿", 300, { ds: 5 }, "Social cai 5% menos por dia"]
+    ]
+  },
+  {
+    n: "Programador Back-End", full: "Bruno 'Root'", e: "☕", c: "#475569",
+    trait: "Noturno & Analítico",
+    favActCat: [1, 4],
+    favPetCat: 1,
+    car: ["Reiniciador de Servidor", "Engenheiro de Dados", "Arquiteto Cloud"],
+    pay: 185, w: "Deploy",
+    loja: [
+      ["Monitor Ultrawide Curvo", "🖥️", 500, { dd: 5 }, "Diversão cai 5% menos por dia"],
+      ["Teclado Mecânico Barulhento", "⌨️", 350, { wk: .25 }, "+25% de ganho ao trabalhar"]
+    ]
+  }
+];
+
+// =========================================================================
+// 2. ATIVIDADES GERAIS CATEGORIZADAS (6 CATEGORIAS x 10 ATIVIDADES)
+// =========================================================================
+const ACT_CATS = [
+  {
+    id: 0, name: "Arte & Criatividade", e: "🎨", color: "#ec4899",
+    items: [
+      ["Dobrar um origami", "🦢", "Fazer um tsuru ou sapo que pula com papel", { d: 18, e: -5 }, "Dobrou um tsuru perfeito e um sapinho de papel que salta a mesa toda!"],
+      ["Desenhar sem tirar o lápis do papel", "✏️", "Contorno de um objeto em linha contínua", { d: 16, e: -5 }, "Criou um desenho minimalista incrível em um único traço contínuo."],
+      ["Criar uma playlist temática", "🎧", "Trilhas de filmes antigos ou músicas de um país", { d: 22, e: -5, s: 5 }, "Montou uma playlist lendária que virou trilha sonora oficial da sala."],
+      ["Escrever carta para o futuro", "✉️", "Metas e pensamentos para abrir daqui a 5 anos", { d: 15, h: 10, e: -5 }, "Selou um envelope com seus sonhos para abrir daqui a 5 anos."],
+      ["Tirar fotos macro", "📸", "Fotografar texturas bem de perto com o celular", { d: 20, e: -8 }, "Capturou detalhes surreais da textura de uma folha e do café."],
+      ["Inventar receita com a geladeira", "🧪", "Misturar 3 ingredientes improváveis", { f: 22, d: 18, e: -10 }, "Misturou ingredientes aleatórios e criou uma iguaria surpreendente!", [.3, { h: -10, f: -10 }, "A mistura ficou radioativa e embrulhou o estômago."]],
+      ["Autorretrato com mão não dominante", "🖌️", "Desenhar seu rosto com a mão trocada", { d: 22, e: -5 }, "O desenho saiu digno de Picasso e rendeu boas risadas."],
+      ["Criar um mapa imaginário", "🗺️", "Continente fictício com rios e montanhas", { d: 24, e: -8 }, "Desenhou um arquipélago inteiro com vulcões e cidades inventadas."],
+      ["Escrever um haicai", "🌸", "Poema curto de três versos sobre o clima", { d: 15, h: 8, e: -3 }, "Compôs um haicai poético observando a brisa pela janela."],
+      ["Customizar camiseta velha", "👕", "Tinta de tecido, tesoura ou nós criativos", { d: 25, e: -10, s: 8 }, "Transformou uma camiseta esquecida numa peça exclusiva estilosa!"]
+    ]
+  },
+  {
+    id: 1, name: "Curiosidades & Aprendizado", e: "🧠", color: "#2b7de9",
+    items: [
+      ["Dizer 'obrigado' em 10 idiomas", "🌍", "Pronúncia de islandês, suaíli, coreano e mais", { d: 16, s: 10, e: -5 }, "Aprendeu a agradecer em 10 idiomas diferentes — incluindo 'Takk' e 'Asante'!"],
+      ["Explorar lugar aleatório no mapa", "🧭", "Navegar no Street View em um país distante", { d: 22, e: -5 }, "Passeou virtualmente pelas ruas de uma vila costeira na Islândia."],
+      ["Ler artigo aleatório na Wikipédia", "📖", "Assunto completamente desconhecido", { d: 18, p: 2, e: -5 }, "Leu tudo sobre a Grande Guerra das Emus na Austrália de 1932."],
+      ["Aprender nó de marinheiro", "🪢", "Praticar o nó 'lais de guia' com barbante", { d: 16, p: 2, e: -5 }, "Dominou o nó lais de guia com uma mão só."],
+      ["Descobrir significado do sobrenome", "📜", "Origem histórica e geográfica da família", { d: 15, h: 5, e: -5 }, "Descobriu curiosidades históricas fascinantes sobre suas raízes."],
+      ["Decorar truque de mágica simples", "🎩", "Truque com moedas ou baralho", { d: 22, s: 15, e: -8 }, "Aprendeu a fazer uma moeda sumir e deixou a república boquiaberta!"],
+      ["Estudar uma constelação", "✨", "Localizar Órion ou Cruzeiro do Sul no céu", { d: 18, h: 8, e: -5 }, "Identificou as Três Marias e a nebulosa de Órion no céu noturno."],
+      ["Ouvir gênero musical desconhecido", "🎶", "Folk mongol, afrobeat ou electro swing", { d: 22, e: -5 }, "Descobriu o canto difônico mongol e o afrobeat e ficou viciado."],
+      ["Aprender o alfabeto em Libras", "🤟", "Soletrar seu nome na Língua de Sinais", { d: 18, s: 12, e: -8 }, "Aprendeu a soletrar seu nome completo e cumprimentos em Libras."],
+      ["Pesquisar mecanismo de objeto", "⚙️", "Como funciona um zíper, fechadura ou micro-ondas", { d: 16, p: 3, e: -5 }, "Entendeu exatamente como os pinos de uma fechadura alinham com a chave."]
+    ]
+  },
+  {
+    id: 2, name: "Casa & Organização", e: "🧹", color: "#2eb85c",
+    items: [
+      ["Organizar uma gaveta em 15 min", "🗄️", "Arrumar uma gaveta bagunçada rapidamente", { d: 14, h: 8, e: -8 }, "Deixou a gaveta da escrivaninha impecável em 15 minutos."],
+      ["Apagar fotos duplicadas do celular", "📱", "Liberar memória deletando prints antigos", { d: 14, h: 6, e: -5 }, "Liberou 4 GB apagando prints de memes de 2022."],
+      ["Trocar os móveis de lugar", "🛋️", "Mudar cama ou mesa para renovar o quarto", { d: 24, h: 10, e: -18 }, "Reorganizou o quarto inteiro e parece até que mudou de casa!"],
+      ["Limpar o teclado do computador", "⌨️", "Tirar poeira e migalhas entre as teclas", { d: 14, h: 8, e: -6 }, "Tirou uma colheita inteira de migalhas de biscoito do teclado."],
+      ["Limpar caixa de entrada de e-mail", "📧", "Cancelar newsletters e spam acumulados", { d: 15, h: 8, e: -6 }, "Zerou 1.400 e-mails não lidos e cancelou 30 spams."],
+      ["Testar todas as canetas da casa", "🖊️", "Descartar as secas e guardar as boas", { d: 12, h: 5, e: -4 }, "Jogou fora 11 canetas falhadas e salvou 4 guerreiras."],
+      ["Dobrar roupas em rolinho", "👕", "Método compacto para economizar espaço", { d: 14, h: 6, e: -8 }, "Dobrou todas as camisetas em rolinhos dignos de vitrine."],
+      ["Lavar os tênis", "👟", "Limpeza geral nos calçados do armário", { d: 16, h: 8, e: -12 }, "Deixou os tênis brancos brilhando como novos."],
+      ["Criar pasta de documentos", "📁", "Separar contas, garantias e manuais", { d: 14, h: 8, p: 2, e: -8 }, "Organizou todos os comprovantes e garantias numa pasta etiquetada."],
+      ["Regar e limpar folhas das plantas", "🪴", "Passar pano úmido nas folhas internas", { d: 18, h: 10, e: -5 }, "Regou as plantas e deixou as folhas verdes reluzentes."]
+    ]
+  },
+  {
+    id: 3, name: "Corpo & Bem-estar", e: "🧘", color: "#0ea5e9",
+    items: [
+      ["Sessão de alongamento de 10 min", "🤸", "Aliviar tensão no pescoço, ombros e lombar", { h: 16, e: 12, d: 10 }, "Estalou a coluna inteira e aliviou toda a tensão dos ombros."],
+      ["Banho no escuro ou à luz de velas", "🕯️", "Mudar a iluminação para relaxar os sentidos", { h: 15, e: 15, d: 18 }, "Tomou um banho relaxante à luz de velas e saiu flutuando."],
+      ["Ficar 30 min longe de qualquer tela", "📵", "Desligar celular e PC para descansar a mente", { h: 18, e: 15, d: 12 }, "Desconectou por meia hora olhando a paisagem e descansou os olhos."],
+      ["Beber copo grande de água gelada", "💧", "Hidratar o corpo com atenção plena", { h: 12, e: 8, f: 5 }, "Bebeu 500ml de água trincando e sentiu o cérebro reiniciar."],
+      ["Praticar respiração quadrada", "🌬️", "Inspirar 4s, segurar 4s, expirar 4s, aguardar 4s", { h: 16, e: 12, d: 10 }, "Fez 5 ciclos de respiração quadrada e baixou a ansiedade a zero."],
+      ["Fazer automassagem nos pés", "🦶", "Creme hidratante na sola dos pés", { h: 14, e: 14, d: 14 }, "Massageou os pés cansados e sentiu um alívio imediato."],
+      ["Equilibrar-se em um pé só", "🦩", "Posição da árvore da ioga de olhos fechados", { h: 12, d: 15, e: -4 }, "Ficou 42 segundos equilibrado na posição da árvore sem piscar!", [.25, { h: -5 }, "Perdeu o equilíbrio e quase derrubou o abajur."]],
+      ["Preparar um escalda-pés", "🛁", "Água morna, sal grosso e ervas na bacia", { h: 18, e: 18, d: 16 }, "Mergulhou os pés na água morna com sal grosso e relaxou profundamente."],
+      ["Dormir invertido na cama", "🛏️", "Cabeça nos pés da cama por uma noite", { d: 18, e: 20 }, "Dormiu ao contrário na cama e teve sonhos absurdamente criativos."],
+      ["Caminhar sem destino por 20 min", "🚶", "Virar nas ruas pela intuição sem relógio", { h: 16, d: 20, e: -10 }, "Descobriu uma praça arborizada escondida a três quarteirões da república."]
+    ]
+  },
+  {
+    id: 4, name: "Jogos & Passatempos", e: "🎲", color: "#f5a623",
+    items: [
+      ["Montar um castelo de cartas", "🃏", "Construir torre de pelo menos 3 andares", { d: 24, e: -8 }, "Ergueu um castelo de 4 andares sem respirar perto da mesa!", [.3, { d: -5 }, "Uma corrente de vento derrubou tudo no último andar."]],
+      ["Fazer avião de papel recordista", "✈️", "Testar modelo de longa distância na sala", { d: 20, e: -5 }, "O avião planou da sala até a cozinha fazendo curva perfeita!"],
+      ["Pedra, papel e tesoura no espelho", "🪞", "Tentar ser mais rápido que seu reflexo", { d: 18, e: -4 }, "Empatou 14 vezes seguidas contra si mesmo no espelho."],
+      ["Resolver cubo mágico / quebra-cabeça", "🧊", "Jogo de lógica parado na estante", { d: 24, p: 3, e: -10 }, "Montou todas as faces do cubo mágico em menos de 3 minutos!"],
+      ["Equilibrar vassoura na palma da mão", "🧹", "Manter o cabo na vertical pelo máximo tempo", { d: 18, e: -6 }, "Bateu seu recorde pessoal equilibrando a vassoura por 58 segundos!"],
+      ["Escrever alfabeto de trás pra frente", "🔤", "Z até A no menor tempo possível", { d: 16, p: 2, e: -5 }, "Escreveu Z-Y-X...A sem errar uma única letra."],
+      ["Jogar 'Stop' (Adedonha) sozinho", "📝", "Preencher nome, animal, fruta e cidade em 1 min", { d: 20, e: -6 }, "Sorteou a letra K e mandou Kiwi, Koala e Kuala Lumpur em 40 segundos!"],
+      ["Malabarismo com três meias", "🧦", "Treinar coordenação motora sem quebrar nada", { d: 22, e: -8 }, "Conseguiu manter três pares de meias no ar por 20 voltas seguidas!"],
+      ["Contar objetos azuis no cômodo", "🔵", "Inventário mental de tudo na cor azul", { d: 14, h: 6, e: -3 }, "Encontrou exatamente 19 objetos azuis escondidos pela sala."],
+      ["Assobiar uma música inteira", "🎵", "Reproduzir melodia complexa assobiando", { d: 18, s: 5, e: -4 }, "Assobiou o tema inteiro de Star Wars sem perder o fôlego."]
+    ]
+  },
+  {
+    id: 5, name: "Social & Cotidiano", e: "💬", color: "#8338ec",
+    items: [
+      ["Mandar mensagem para amigo antigo", "📲", "Enviar um 'oi' para alguém de meses atrás", { s: 28, d: 15, e: -5 }, "Colocou o papo em dia com um velho amigo e marcaram de se ver!"],
+      ["Elogiar um desconhecido", "😊", "Comentário gentil sobre roupa, pet ou trabalho", { s: 24, d: 15, h: 8, e: -5 }, "Elogiou o cachorro de um vizinho na rua e alegrou o dia de ambos."],
+      ["Assistir trailer de filme de 1980", "📼", "Ver como eram feitas divulgações antigas", { d: 20, e: -5 }, "Riu demais com a narração dramática dos trailers dos anos 80."],
+      ["Comer usando hashis (palitinhos)", "🥢", "Fazer a refeição usando apenas palitinhos", { f: 15, d: 20, e: -8 }, "Conseguiu comer até feijão usando hashis sem derrubar um grão!"],
+      ["Fazer piquenique na sala de estar", "🧺", "Estender lençol no chão e lanchar fora da mesa", { f: 20, d: 25, s: 15, e: -8 }, "Estendeu um lençol xadrez na sala e fez um piquenique indoor épico!"],
+      ["Ouvir podcast sobre tema bizarro", "🎙️", "Mistérios não resolvidos ou ciência maluca", { d: 22, e: -5 }, "Ouviu um episódio alucinante sobre desaparecimentos no Triângulo das Bermudas."],
+      ["Escrever avaliação 5 estrelas local", "⭐", "Ajudar padaria ou loja do bairro na internet", { s: 18, d: 14, h: 6, e: -4 }, "Deixou um elogio sincero para a padaria da esquina e o padeiro agradeceu!"],
+      ["Assistir transmissão ao vivo da ISS", "🛰️", "Ver a Terra do espaço em tempo real", { d: 22, h: 10, e: -5 }, "Observou o nascer do sol orbital direto das câmeras da Estação Espacial!"],
+      ["Experimentar uma fruta desconhecida", "🥭", "Comprar a fruta mais diferente da banca", { f: 18, d: 20, h: 10, m: -15 }, "Provou pitaia amarela e mangostão pela primeira vez — deliciosa!"],
+      ["Observar as nuvens por 5 minutos", "☁️", "Encontrar formatos de animais no céu", { d: 18, h: 12, e: 8 }, "Viu uma nuvem idêntica a uma capivara de chapéu passando no céu."]
+    ]
+  }
+];
+
+// =========================================================================
+// 3. ITENS DA LOJA DE BENS (6 CATEGORIAS x 10 ITENS = 60 ITENS)
+// =========================================================================
+const SHOP_CATS = [
+  {
+    id: 0, name: "Cozinha & Gastronomia", e: "🍳",
+    items: [
+      ["Pedras de gelo em aço inox", "🧊", 90, { dd: 2 }, "+2% retenção de Diversão/dia"],
+      ["Mini mixer portátil de leite", "🥛", 110, { sl: 4 }, "+4% Energia ao dormir"],
+      ["Cortador de melancia pinça", "🍉", 85, { df: 2 }, "-2% queda de Fome/dia"],
+      ["Moedor elétrico de pimenta LED", "🌶️", 130, { df: 3 }, "-3% queda de Fome/dia"],
+      ["Formas de gelo caveira gigante", "💀", 80, { dd: 2 }, "+2% retenção de Diversão/dia"],
+      ["Termômetro culinário digital", "🌡️", 120, { df: 3 }, "-3% queda de Fome/dia"],
+      ["Tapete de silicone culinário", "🥐", 95, { df: 2 }, "-2% queda de Fome/dia"],
+      ["Descascador de abacaxi espiral", "🍍", 100, { dh: 2 }, "+2% Saúde passiva/dia"],
+      ["Garrafa térmica com visor LED", "🍶", 150, { sl: 5 }, "+5% Energia ao dormir"],
+      ["Hashis de metal reutilizáveis", "🥢", 75, { ds: 2 }, "+2% retenção de Social/dia"]
+    ]
+  },
+  {
+    id: 1, name: "Tecnologia & Gadgets", e: "📱",
+    items: [
+      ["Mini impressora térmica sem tinta", "🖨️", 220, { tp: 0.1 }, "+10% progresso de Carreira"],
+      ["Luminária lua cheia 3D", "🌕", 160, { sl: 5 }, "+5% Energia ao dormir"],
+      ["Rastreador Bluetooth para chaves", "📡", 140, { wk: 0.05 }, "+5% ganho ao trabalhar"],
+      ["Teclado numérico sem fio retrô", "🔢", 180, { wk: 0.08 }, "+8% ganho ao trabalhar"],
+      ["Suporte articulado pesado celular", "📲", 110, { dd: 3 }, "+3% retenção de Diversão/dia"],
+      ["Fita de LED inteligente por voz", "🌈", 170, { dd: 4 }, "+4% retenção de Diversão/dia"],
+      ["Mini aspirador de pó USB mesa", "🧹", 120, { dh: 2 }, "+2% Saúde passiva/dia"],
+      ["Lente macro para câmera celular", "🔬", 135, { dd: 3 }, "+3% retenção de Diversão/dia"],
+      ["Despertador que foge com rodinhas", "⏰", 190, { tp: 0.12 }, "+12% progresso de Carreira"],
+      ["Carregador portátil MagSafe", "🔋", 240, { wk: 0.08 }, "+8% ganho ao trabalhar"]
+    ]
+  },
+  {
+    id: 2, name: "Casa & Decoração", e: "🪴",
+    items: [
+      ["Terrário fechado de vidro", "🌿", 165, { dh: 3 }, "+3% Saúde passiva/dia"],
+      ["Tapete de entrada bem-humorado", "🚪", 95, { ds: 3 }, "+3% retenção de Social/dia"],
+      ["Difusor ultrassônico efeito chama", "🔥", 185, { sl: 6 }, "+6% Energia ao dormir"],
+      ["Quadro raspadinha de mapas/filmes", "🗺️", 140, { dd: 3 }, "+3% retenção de Diversão/dia"],
+      ["Manta pesada antiestresse", "🛏️", 260, { sl: 8 }, "+8% Energia ao dormir"],
+      ["Relógio que gira ao contrário", "🕰️", 150, { dd: 3 }, "+3% retenção de Diversão/dia"],
+      ["Suporte magnético para facas", "🔪", 130, { df: 3 }, "-3% queda de Fome/dia"],
+      ["Almofada em formato de pão francês", "🥖", 105, { dd: 3 }, "+3% retenção de Diversão/dia"],
+      ["Kit cultivo cogumelos comestíveis", "🍄", 175, { df: 4 }, "-4% queda de Fome/dia"],
+      ["Lâmpada de lava clássica", "🌋", 195, { dd: 4 }, "+4% retenção de Diversão/dia"]
+    ]
+  },
+  {
+    id: 3, name: "Jogos, Arte & Passatempos", e: "🎮",
+    items: [
+      ["Baralho à prova d'água", "🃏", 90, { ds: 3 }, "+3% retenção de Social/dia"],
+      ["Quebra-cabeça de madeira 3D", "🧩", 160, { dd: 4 }, "+4% retenção de Diversão/dia"],
+      ["Cubo mágico magnético speedcube", "🧊", 135, { dd: 3 }, "+3% retenção de Diversão/dia"],
+      ["Livro de colorir mandalas", "🖍️", 85, { dh: 2 }, "+2% Saúde passiva/dia"],
+      ["Kalimba (piano de polegar)", "🎶", 175, { dd: 4 }, "+4% retenção de Diversão/dia"],
+      ["Canetas brush pens lettering", "✒️", 125, { dd: 3 }, "+3% retenção de Diversão/dia"],
+      ["Jogo de cartas Taco Gato / Uno Flip", "🎴", 95, { ds: 4 }, "+4% retenção de Social/dia"],
+      ["Massa inteligente muda de cor", "🔮", 80, { dd: 2 }, "+2% retenção de Diversão/dia"],
+      ["Conjunto de dados de RPG", "🎲", 110, { ds: 3 }, "+3% retenção de Social/dia"],
+      ["Kit pintura por números em tela", "🖼️", 150, { dd: 4 }, "+4% retenção de Diversão/dia"]
+    ]
+  },
+  {
+    id: 4, name: "Cuidados Pessoais", e: "💆",
+    items: [
+      ["Massageador capilar aranha", "🕷️", 70, { dh: 2 }, "+2% Saúde passiva/dia"],
+      ["Máscara de dormir com fones", "🎧", 180, { sl: 7 }, "+7% Energia ao dormir"],
+      ["Escova de dentes de bambu", "🎋", 60, { dh: 2 }, "+2% Saúde passiva/dia"],
+      ["Rolo facial de pedra jade", "💎", 115, { dh: 3 }, "+3% Saúde passiva/dia"],
+      ["Meias divertidas estampadas", "🧦", 75, { ds: 2 }, "+2% retenção de Social/dia"],
+      ["Bálsamo labial esférico", "🫧", 65, { dh: 2 }, "+2% Saúde passiva/dia"],
+      ["Garrafa de água com horários", "💧", 90, { dh: 3 }, "+3% Saúde passiva/dia"],
+      ["Protetor auricular de silicone", "🔇", 85, { sl: 4 }, "+4% Energia ao dormir"],
+      ["Aquecedor portátil de mãos", "🔥", 145, { dh: 3 }, "+3% Saúde passiva/dia"],
+      ["Sabonete esfoliante café/aveia", "🧼", 70, { dh: 2 }, "+2% Saúde passiva/dia"]
+    ]
+  },
+  {
+    id: 5, name: "Utilidades Inusitadas", e: "🛠️",
+    items: [
+      ["Chaveiro multiferramenta floco", "❄️", 95, { wk: 0.05 }, "+5% ganho ao trabalhar"],
+      ["Fita dupla face nano gel", "📏", 75, { dd: 2 }, "+2% retenção de Diversão/dia"],
+      ["Guarda-chuva invertido", "☂️", 140, { dh: 3 }, "+3% Saúde passiva/dia"],
+      ["Caderno inteligente reposicionável", "📓", 165, { tp: 0.1 }, "+10% progresso de Carreira"],
+      ["Mini selador térmico de pacotes", "🛍️", 105, { df: 3 }, "-3% queda de Fome/dia"],
+      ["Etiquetadora manual retrô", "🏷️", 130, { tp: 0.08 }, "+8% progresso de Carreira"],
+      ["Limpa-telas spray com microfibra", "✨", 80, { wk: 0.04 }, "+4% ganho ao trabalhar"],
+      ["Cadarços elásticos sem nó", "👟", 70, { sl: 3 }, "+3% Energia ao dormir"],
+      ["Balança digital para malas", "🧳", 120, { wk: 0.05 }, "+5% ganho ao trabalhar"],
+      ["Apito de emergência e bússola", "🧭", 85, { dh: 2 }, "+2% Saúde passiva/dia"]
+    ]
+  }
+];
+
+// =========================================================================
+// 4. PETS DISPONÍVEIS (5 CATEGORIAS)
+// =========================================================================
+const PET_CATS = [
+  {
+    id: 0, name: "Pequenos Mamíferos", e: "🐹",
+    pets: [
+      ["Furão (Ferret)", "🦦", 320, "Brincalhão, curioso e adora túneis", { d: 8, s: 5 }],
+      ["Porquinho-da-índia", "🐹", 180, "Dócil e vocaliza assobios fofos", { d: 6, s: 6 }],
+      ["Chinchila", "🐭", 350, "Pelagem macia e banhos de pó especial", { d: 8, h: 4 }],
+      ["Ouriço-pigmeu-africano", "🦔", 380, "Espinhoso, noturno e muito calmo", { d: 7, h: 5 }],
+      ["Petauro-do-açúcar", "🐿️", 420, "Pequeno marsupial planador", { d: 10, s: 5 }],
+      ["Coelho Mini Lop", "🐰", 240, "Orelhas caídas, carinhoso e silencioso", { d: 7, h: 5 }],
+      ["Esquilo-da-mongólia (Gerbil)", "🐁", 160, "Ativo e adora cavar túneis", { d: 6, s: 4 }],
+      ["Rato Twister", "🐀", 150, "Inteligente e aprende truques", { d: 7, s: 6 }],
+      ["Hamster Sírio", "🐹", 130, "Compacto e de hábitos crepusculares", { d: 5, h: 4 }],
+      ["Mini Pig (Porco Anão)", "🐷", 500, "Muito inteligente, limpo e sociável", { d: 10, s: 10 }]
+    ]
+  },
+  {
+    id: 1, name: "Répteis", e: "🦎",
+    pets: [
+      ["Dragão Barbudo (Pogona)", "🦎", 360, "Lagarto dócil que adora banho de sol", { d: 8, h: 5 }],
+      ["Gecko Leopardo", "🦎", 310, "Noturno com manchas de leopardo", { d: 7, h: 4 }],
+      ["Jiboia Arco-íris", "🐍", 450, "Pele furta-cor brilhante sob a luz", { d: 9, s: 6 }],
+      ["Corn Snake (Cobra-do-milho)", "🐍", 340, "Calma, dócil e de cores vibrantes", { d: 7, s: 5 }],
+      ["Jabuti-piranga", "🐢", 290, "Longevo e reconhece a voz do tutor", { h: 8, d: 5 }],
+      ["Tigre-d'água", "🐢", 220, "Tartaruga semiaquática muito ativa", { d: 6, h: 5 }],
+      ["Camaleão-do-iêmen", "🦎", 480, "Muda de cor conforme humor e clima", { d: 10, s: 6 }],
+      ["Teiú", "🐊", 440, "Lagarto brasileiro manso e imponente", { d: 9, s: 7 }]
+    ]
+  },
+  {
+    id: 2, name: "Aves", e: "🦜",
+    pets: [
+      ["Calopsita", "🦜", 220, "Adora cafuné e assobia melodias", { d: 8, s: 8 }],
+      ["Agapornis (Inseparável)", "🦜", 250, "Colorido, energético e muito apegado", { s: 9, d: 7 }],
+      ["Ring Neck", "🦜", 390, "Elegante e imita a fala humana", { s: 10, d: 9 }],
+      ["Diamante-de-gould", "🐦", 210, "Plumagem australiana super colorida", { d: 7, h: 5 }],
+      ["Galinha Sedosa (Silkie)", "🐔", 280, "Penas fofas que parecem algodão", { d: 9, f: 4 }]
+    ]
+  },
+  {
+    id: 3, name: "Anfíbios & Aquáticos", e: "🐸",
+    pets: [
+      ["Axolote", "🦎", 370, "Anfíbio mexicano sorridente aquático", { d: 9, h: 6 }],
+      ["Sapo Pacman", "🐸", 260, "Arredondado e com apetite voraz", { d: 7, h: 4 }],
+      ["Peixe Betta", "🐟", 110, "Barbatanas longas e personalidade forte", { h: 6, d: 5 }],
+      ["Camarão Red Cherry", "🦐", 95, "Vermelho vibrante para aquário plantado", { h: 5, d: 4 }]
+    ]
+  },
+  {
+    id: 4, name: "Invertebrados", e: "🕷️",
+    pets: [
+      ["Caranguejeira Brasileira", "🕷️", 270, "Silenciosa e de baixa manutenção", { d: 7, s: 5 }],
+      ["Bicho-pau", "🌿", 120, "Mestre da camuflagem em graveto", { d: 6, h: 4 }],
+      ["Caramujo Gigante Africano", "🐌", 140, "Molusco curioso, lento e silencioso", { h: 6, d: 5 }]
+    ]
+  }
+];
+
+const EG = [
+  ["A república ficou sem internet no meio da noite e você jura que sabe consertar.",
+    ["Mexer nos fios do roteador", { d: 15, e: -15, m: -50 }, "Desencapou dois cabos e reiniciou o modem 9 vezes. Voltou!"],
+    ["Ligar pro suporte e ouvir música de espera", { e: -20, s: -5, h: -5 }, "Ficou 48 minutos ouvindo flauta doce até a ligação cair."]],
+  ["O vizinho deu uma festa universitária e a república inteira foi convidada.",
+    ["Ir pra festa até amanhecer", { s: 30, d: 25, e: -30, f: -10 }, "Dançou até o sol raiar e fez amizade com metade do campus!"],
+    ["Reclamar do barulho no grupo do condomínio", { s: -15, h: 5 }, "Dormiu cedo, mas ganhou fama de síndico rabugento."]],
+  ["A geladeira da república está completamente vazia (só tem gelo e mostarda).",
+    ["Pedir pizza gigante", { m: -60, f: 40 }, "A pizza chegou quentinha e salvou o estômago!"],
+    ["Fazer miojo cru com ketchup", { f: 20, h: -5 }, "Matou a fome no modo sobrevivência extrema."]],
+  ["Você achou R$ 150 amassados no bolso de uma calça jeans velha.",
+    ["Guardar na conta bancária", { m: 150 }, "Agiu com maturidade financeira e guardou cada centavo."],
+    ["Pagar rodada de salgado pra galera", { s: 25, d: 20, m: -50 }, "Gastou R$ 50 na cantina, guardou R$ 100 e virou o herói do dia!"]]
+];
+
+const FALAS = [
+  "{a} e {b} discutiram sobre quem esqueceu a panela de pressão na pia. Ninguém lavou.",
+  "{a} ensinou {b} a fazer miojo gourmet com 14 temperos. Ficou comestível!",
+  "{b} pediu o carregador de {a} emprestado pela 5ª vez esta semana.",
+  "{a} e {b} colocaram um filme na sala e dormiram nos primeiros 10 minutos.",
+  "{a} jurou que {b} comeu o último iogurte da geladeira. O mistério continua.",
+  "{a} pediu ajuda a {b} com a internet. Tiraram da tomada por 10s e funcionou.",
+  "{b} soltou um spoiler gigante da série para {a}. Clima tenso na cozinha.",
+  "{a} e {b} fizeram um campeonato épico de par ou ímpar que durou 2 horas."
+];
+
+const L = { m: "Saldo", f: "Fome", e: "Energia", s: "Social", d: "Diversão", h: "Saúde", p: "Carreira" };
+const DIAS = 30;
+
+// =========================================================================
+// 5. ESTADO E HELPERS
+// =========================================================================
+const cl = x => Math.max(0, Math.min(100, Math.round(x)));
+const R = a => a[Math.floor(Math.random() * a.length)];
+const $ = id => document.getElementById(id);
+const lvl = c => c.p < 34 ? 0 : c.p < 67 ? 1 : 2;
+
+let S = null;
+let sheet = null; // null | 'carreira' | 'atividades' | 'relacoes' | 'bens'
+let subTab = 0;   // sub-aba dentro do sheet ativo
+let dark = false;
+
+function getBonus(c, charIdx, key) {
+  let total = 0;
+  c.inv.forEach(j => {
+    total += (P[charIdx].loja[j][3][key] || 0);
+  });
+  c.bens.forEach(code => {
+    const [cid, iid] = code.split("-").map(Number);
+    const item = SHOP_CATS[cid]?.items[iid];
+    if (item && item[3][key]) total += item[3][key];
+  });
+  return total;
+}
+
+function gerarSugestoesDia(charIdx) {
+  const favCats = P[charIdx].favActCat;
+  const pool = [];
+  ACT_CATS.forEach((cat, cIdx) => {
+    cat.items.forEach((it, iIdx) => {
+      const weight = favCats.includes(cIdx) ? 3 : 1;
+      for (let w = 0; w < weight; w++) pool.push({ cIdx, iIdx, isFav: favCats.includes(cIdx) });
+    });
+  });
+  const chosen = [];
+  const used = new Set();
+  while (chosen.length < 3 && pool.length) {
+    const pick = R(pool);
+    const key = `${pick.cIdx}-${pick.iIdx}`;
+    if (!used.has(key)) {
+      used.add(key);
+      chosen.push(pick);
+    }
+  }
+  return chosen;
+}
+
+// =========================================================================
+// 6. ÁUDIO WEB AUDIO API
+// =========================================================================
+let audioCtx = null, musOn = false, musTimer = null, musStep = 0;
+
+function sfx(type) {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const now = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+    osc.connect(g); g.connect(audioCtx.destination);
+
+    if (type === 'tap') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(520, now);
+      osc.frequency.exponentialRampToValueAtTime(680, now + 0.05);
+      g.gain.setValueAtTime(0.05, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+      osc.start(now); osc.stop(now + 0.06);
+    } else if (type === 'age') {
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(392, now);
+      osc.frequency.setValueAtTime(523.25, now + 0.07);
+      osc.frequency.setValueAtTime(659.25, now + 0.14);
+      g.gain.setValueAtTime(0.08, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+      osc.start(now); osc.stop(now + 0.28);
+    } else if (type === 'cash') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(987.77, now);
+      osc.frequency.setValueAtTime(1318.51, now + 0.07);
+      g.gain.setValueAtTime(0.07, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+      osc.start(now); osc.stop(now + 0.25);
+    } else if (type === 'promo') {
+      [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
+        const o2 = audioCtx.createOscillator(), g2 = audioCtx.createGain();
+        o2.type = 'triangle'; o2.frequency.value = freq;
+        g2.gain.setValueAtTime(0.07, now + idx * 0.09);
+        g2.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.09 + 0.22);
+        o2.connect(g2); g2.connect(audioCtx.destination);
+        o2.start(now + idx * 0.09); o2.stop(now + idx * 0.09 + 0.22);
+      });
+    } else if (type === 'bad') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(185, now);
+      osc.frequency.linearRampToValueAtTime(125, now + 0.22);
+      g.gain.setValueAtTime(0.07, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+      osc.start(now); osc.stop(now + 0.24);
+    }
+  } catch (e) {}
+}
+
+function toggleMusic() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    musOn = !musOn;
+    if (musOn) {
+      audioCtx.resume();
+      const notes = [261.63, 329.63, 392.00, 329.63, 293.66, 349.23, 440.00, 349.23];
+      musTimer = setInterval(() => {
+        if (!musOn) return;
+        const now = audioCtx.currentTime;
+        const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        o.type = 'sine'; o.frequency.value = notes[musStep % notes.length];
+        g.gain.setValueAtTime(0.022, now);
+        g.gain.exponentialRampToValueAtTime(0.0008, now + 0.35);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(now + 0.36); o.stop(now + 0.36);
+        musStep++;
+      }, 420);
+    } else clearInterval(musTimer);
+  } catch (e) { musOn = false; }
+  render();
+}
+
+function floatBadge(text, bg = "#2eb85c") {
+  const el = document.createElement("div");
+  el.className = "float-badge text-white";
+  el.style.background = bg;
+  el.style.left = Math.max(16, Math.min(window.innerWidth - 190, window.innerWidth / 2 - 75 + (Math.random() * 40 - 20))) + "px";
+  el.style.top = (window.innerHeight * 0.44) + "px";
+  el.textContent = text;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1100);
+}
+
+// =========================================================================
+// 7. FEED CRONOLÓGICO & INICIALIZAÇÃO
+// =========================================================================
+function addLog(charIdx, text, tag = "") {
+  const c = S.ch[charIdx];
+  let dayBlock = c.log.find(d => d.dia === S.dia);
+  if (!dayBlock) {
+    dayBlock = { dia: S.dia, entries: [] };
+    c.log.push(dayBlock);
+  }
+  dayBlock.entries.push({ text, tag });
+}
+
+function fxSummary(fx) {
+  return Object.entries(fx).map(([k, v]) => {
+    const sign = v > 0 ? "+" : "";
+    return k === "m" ? `${sign}R$ ${v}` : `${L[k]} ${sign}${v}%`;
+  }).join(" · ");
+}
+
+function ap(c, fx) {
+  for (const k in fx) {
+    c[k] = k === "m" ? c.m + fx[k] : cl(c[k] + fx[k]);
+  }
+}
+
+function novo() {
+  sheet = null;
+  subTab = 0;
+  S = {
+    dia: 1,
+    at: 0,
+    ov: null,
+    cook: [],
+    ch: P.map((p, idx) => ({
+      m: 1000, p: 0, f: 100, e: 100, s: 100, d: 100, h: 100,
+      inv: [],
+      bens: [],
+      pets: [],
+      sug: gerarSugestoesDia(idx),
+      sl: 3, vivo: 1, causa: "",
+      log: [{
+        dia: 1,
+        entries: [
+          { text: `Me mudei para a República Acadêmica com R$ 1.000 e perfil ${p.trait}.`, tag: "Início" },
+          { text: `Iniciei minha jornada profissional como ${p.car[0]} (${p.n}).`, tag: "Carreira" }
+        ]
+      }]
+    }))
+  };
+  render(true);
+}
+
+// =========================================================================
+// 8. AÇÕES DO JOGO
+// =========================================================================
+function actBasic(k) {
+  const i = S.at, c = S.ch[i], p = P[i];
+  if (!c.vivo || c.sl < 1) return;
+
+  if (k === "pod") {
+    if (c.m < 30) { sfx('bad'); floatBadge("Sem grana! 💸", "#e55353"); return; }
+    c.m -= 30; c.f = cl(c.f + 40); c.h = cl(c.h - 10);
+    sfx('cash'); floatBadge("-R$ 30 | +40% Fome", "#f5a623");
+    addLog(i, "Comi um podrão caprichado na esquina. Matou a fome (+40% Fome, -10% Saúde).", "🍔 Alimentação");
+  }
+  else if (k === "coz") {
+    if (c.m < 15) { sfx('bad'); floatBadge("Sem grana! 💸", "#e55353"); return; }
+    const g = S.cook.filter(x => x !== i);
+    c.m -= 15; c.f = cl(c.f + 30);
+    sfx('cash'); floatBadge("-R$ 15 | +30% Fome", "#2eb85c");
+    if (g.length) {
+      c.s = cl(c.s + 12);
+      g.forEach(x => {
+        S.ch[x].s = cl(S.ch[x].s + 12);
+        addLog(x, `${p.n} entrou na cozinha e fizemos um almoço coletivo (+12% Social).`, "🍳 República");
+      });
+      addLog(i, "Cozinhei em grupo com a galera da república! (+30% Fome, +12% Social para todos).", "🍳 Cozinha");
+    } else {
+      addLog(i, "Preparei comida caseira na cozinha da república (+30% Fome).", "🍳 Cozinha");
+    }
+    if (!S.cook.includes(i)) S.cook.push(i);
+  }
+  else if (k === "dor") {
+    const gain = Math.round(80 + getBonus(c, i, "sl"));
+    c.e = cl(c.e + gain);
+    sfx('tap'); floatBadge(`+${gain}% Energia`, "#2b7de9");
+    addLog(i, `Tirei um sono reparador e recuperei +${gain}% de Energia.`, "💤 Descanso");
+  }
+  else if (k === "trab") {
+    if (c.e < 40) { sfx('bad'); floatBadge("Energia < 40%! 💤", "#e55353"); return; }
+    const ant = lvl(c);
+    const pg = Math.round(p.pay * (1 + ant * 0.6) * (1 + getBonus(c, i, "wk")));
+    const g = Math.round(7 * (1 + getBonus(c, i, "tp")));
+    c.m += pg; c.e -= 40; c.f = cl(c.f - 20); c.p = cl(c.p + g);
+    sfx('cash'); floatBadge(`+R$ ${pg} | +${g}% Carreira`, "#2eb85c");
+    let txt = `Cumpri expediente (${p.w}): ganhei R$ ${pg} e +${g}% de progresso na carreira (-40% Energia, -20% Fome).`;
+    if (lvl(c) > ant) {
+      txt += ` 🎉 PROMOÇÃO: Agora sou ${p.car[lvl(c)]}!`;
+      sfx('promo');
+    } else if (c.p >= 100) {
+      txt += ` 🏆 Alcancei o topo da profissão!`;
+    }
+    addLog(i, txt, `💼 ${p.w}`);
+  }
+  else if (k === "int") {
+    const o = R(S.ch.map((x, j) => j).filter(j => j !== i && S.ch[j].vivo));
+    c.s = cl(c.s + 30); c.d = cl(c.d + 8);
+    sfx('tap'); floatBadge("+30% Social", "#2b7de9");
+    if (o === undefined) {
+      addLog(i, "Conversei sozinho com as paredes da sala (+30% Social).", "🎲 Social");
+    } else {
+      const fala = R(FALAS).replace(/{a}/g, p.n).replace(/{b}/g, P[o].n);
+      addLog(i, `${fala} (+30% Social, +8% Diversão).`, "🎲 República");
+    }
+  }
+  else if (k === "sair") {
+    if (c.m < 50) { sfx('bad'); floatBadge("Sem grana! 💸", "#e55353"); return; }
+    ap(c, { m: -50, d: 35, s: 22, e: -15 });
+    sfx('cash'); floatBadge("-R$ 50 | +35% Diversão", "#8338ec");
+    addLog(i, `${R(["Fui para uma festa universitária e voltei rouco.", "Saí para o rolê com a galera da faculdade."])} (-R$ 50, +35% Diversão, +22% Social).`, "🎉 Rolê");
+  }
+
+  c.sl--;
+  sheet = null;
+  render(true);
+}
+
+// Dispara um dos 10 eventos específicos de carreira da profissão ativa
+function actCareer(idx) {
+  const i = S.at, c = S.ch[i];
+  if (!c.vivo || c.sl < 1) return;
+  const evList = ALL_CAREER_EVENTS[i];
+  if (!evList || !evList[idx]) return;
+  const ev = evList[idx];
+
+  S.ov = {
+    t: "ev_carreira",
+    ev: ev,
+    evIdx: idx
+  };
+  sheet = null;
+  render(true);
+}
+
+function escolheCareerEvent(optIdx) {
+  const i = S.at, c = S.ch[i], p = P[i];
+  const ev = S.ov.ev;
+  const opt = ev.opts[optIdx];
+
+  const ant = lvl(c);
+  ap(c, opt.fx);
+  sfx('promo');
+  floatBadge(fxSummary(opt.fx), "#2eb85c");
+
+  let txt = `[${ev.title}] ${opt.label}: ${opt.res} (${fxSummary(opt.fx)}).`;
+  if (lvl(c) > ant) {
+    txt += ` 🎉 PROMOÇÃO: Subi para ${p.car[lvl(c)]}!`;
+    sfx('promo');
+  }
+
+  addLog(i, txt, `💼 Evento Carreira`);
+  c.sl--;
+  S.ov = null;
+  render(true);
+}
+
+function actGeneral(catIdx, itemIdx) {
+  const i = S.at, c = S.ch[i], p = P[i];
+  if (!c.vivo || c.sl < 1) return;
+  const cat = ACT_CATS[catIdx];
+  const it = cat.items[itemIdx];
+  const fx = { ...it[3] };
+  if (fx.m < 0 && c.m < -fx.m) { sfx('bad'); floatBadge("Saldo insuficiente! 💸", "#e55353"); return; }
+  if (fx.e < 0 && c.e < -fx.e) { sfx('bad'); floatBadge("Energia insuficiente! 💤", "#e55353"); return; }
+
+  const isFav = p.favActCat.includes(catIdx);
+  if (isFav && fx.d > 0) fx.d += 6;
+
+  ap(c, fx);
+  sfx('tap');
+  floatBadge(`${it[1]} ${isFav ? '⭐ Afinidade!' : it[0]}`, isFav ? "#8338ec" : "#2b7de9");
+
+  let txt = `${it[4]}${isFav ? " ⭐ (Afinidade pessoal: +6% Diversão extra!)" : ""} (${fxSummary(fx)}).`;
+  if (it[5] && Math.random() < it[5][0]) {
+    ap(c, it[5][1]);
+    txt += ` 😬 Ops: ${it[5][2]} (${fxSummary(it[5][1])}).`;
+    sfx('bad');
+  }
+
+  addLog(i, txt, `${cat.e} ${it[0]}`);
+  c.sl--;
+  sheet = null;
+  render(true);
+}
+
+function buyExclusive(j) {
+  const i = S.at, c = S.ch[i], it = P[i].loja[j];
+  if (!c.vivo || c.m < it[2] || c.inv.includes(j)) return;
+  c.m -= it[2];
+  c.inv.push(j);
+  sfx('promo');
+  floatBadge(`Comprou ${it[0]}!`, "#2eb85c");
+  addLog(i, `Adquiri item exclusivo: ${it[1]} ${it[0]} por R$ ${it[2]} (${it[4]}).`, "⭐ Item Exclusivo");
+  render(true);
+}
+
+function buyShopItem(catId, itemIdx) {
+  const i = S.at, c = S.ch[i];
+  const code = `${catId}-${itemIdx}`;
+  const it = SHOP_CATS[catId].items[itemIdx];
+  if (!c.vivo || c.m < it[2] || c.bens.includes(code)) return;
+  c.m -= it[2];
+  c.bens.push(code);
+  sfx('promo');
+  floatBadge(`${it[1]} Adquirido!`, "#2eb85c");
+  addLog(i, `Comprei ${it[1]} ${it[0]} por R$ ${it[2]} (${it[4]}).`, "🛍️ Bens");
+  render(true);
+}
+
+function adoptPet(catId, petIdx) {
+  const i = S.at, c = S.ch[i], p = P[i];
+  const pet = PET_CATS[catId].pets[petIdx];
+  if (!c.vivo || c.m < pet[2]) { sfx('bad'); floatBadge("Saldo insuficiente! 💸", "#e55353"); return; }
+  if (c.pets.length >= 3) { sfx('bad'); floatBadge("Máximo de 3 pets no quarto!", "#f5a623"); return; }
+
+  c.m -= pet[2];
+  const isFavPet = p.favPetCat === catId;
+  c.pets.push({ catId, petIdx, fel: 100, fed: true });
+  c.s = cl(c.s + 15);
+  c.d = cl(c.d + (isFavPet ? 20 : 12));
+
+  sfx('promo');
+  floatBadge(`${pet[1]} Adotado!`, "#ec4899");
+  addLog(i, `Adotei um(a) ${pet[1]} ${pet[0]} por R$ ${pet[2]}! ${isFavPet ? "💖 (Pet dos sonhos! +20% Diversão)" : "(+15% Social, +12% Diversão)"}`, "🐾 Novo Pet");
+  render(true);
+}
+
+function carePet(pIdx, action) {
+  const i = S.at, c = S.ch[i];
+  const myPet = c.pets[pIdx];
+  if (!c.vivo || !myPet) return;
+  const info = PET_CATS[myPet.catId].pets[myPet.petIdx];
+
+  if (action === "feed") {
+    if (myPet.fed) { floatBadge("Já está alimentado hoje!", "#64748b"); return; }
+    if (c.m < 10) { sfx('bad'); floatBadge("Precisa de R$ 10 para ração!", "#e55353"); return; }
+    c.m -= 10;
+    myPet.fed = true;
+    myPet.fel = cl(myPet.fel + 20);
+    sfx('cash');
+    floatBadge(`Alimentou ${info[0]} (-R$ 10)`, "#2eb85c");
+    addLog(i, `Alimentei meu(minha) ${info[1]} ${info[0]} (-R$ 10, Felicidade do pet: ${myPet.fel}%).`, "🐾 Cuidado Pet");
+  } else if (action === "play") {
+    if (myPet.played) { floatBadge("Já brincou hoje!", "#64748b"); return; }
+    myPet.played = true;
+    myPet.fel = cl(myPet.fel + 25);
+    c.d = cl(c.d + 12);
+    c.s = cl(c.s + 8);
+    sfx('tap');
+    floatBadge(`Brincou com ${info[0]} (+12% Div)`, "#ec4899");
+    addLog(i, `Brinquei com meu(minha) ${info[1]} ${info[0]} (+12% Diversão, +8% Social).`, "🐾 Brincadeira");
+  }
+  render(true);
+}
+
+// =========================================================================
+// 9. PASSAR O DIA (+1 DIA BITLIFE)
+// =========================================================================
+function passa() {
+  const pendingIdx = S.ch.findIndex(x => x.vivo && x.sl > 1);
+  if (pendingIdx !== -1) {
+    S.at = pendingIdx;
+    sheet = null;
+    sfx('bad');
+    floatBadge(`${P[pendingIdx].n} precisa agir!`, "#f5a623");
+    render(true);
+    return;
+  }
+
+  sfx('age');
+  const rep = [];
+
+  S.ch.forEach((c, i) => {
+    if (!c.vivo) return;
+    const l = [];
+    let faint = 0;
+
+    const dropF = Math.max(8, 25 - getBonus(c, i, "df"));
+    const dropE = 20;
+    const dropS = Math.max(4, 15 - getBonus(c, i, "ds"));
+    const dropD = Math.max(4, 15 - getBonus(c, i, "dd"));
+    const healH = getBonus(c, i, "dh");
+
+    c.f -= dropF;
+    c.e -= dropE;
+    c.s = cl(c.s - dropS);
+    c.d = cl(c.d - dropD);
+    if (healH > 0) c.h = cl(c.h + healH);
+
+    c.pets.forEach(pt => {
+      const info = PET_CATS[pt.catId].pets[pt.petIdx];
+      if (pt.fed) {
+        ap(c, info[4]);
+        l.push(`${info[1]} ${info[0]} trouxe alegria (${fxSummary(info[4])}).`);
+      } else {
+        pt.fel = cl(pt.fel - 30);
+        l.push(`⚠️ ${info[1]} ${info[0]} ficou com fome (-30% felicidade do pet).`);
+      }
+      pt.fed = false;
+      pt.played = false;
+    });
+
+    if (c.f <= 0) {
+      c.f = 0; c.vivo = 0; c.causa = "Morreu de inanição 🍔";
+      rep.push([i, "☠️ Não resistiu à fome extrema."]);
+      return;
+    }
+    if (c.e <= 0) {
+      c.e = 30; faint = 1;
+      l.push("😵 Desmaiou de exaustão e perdeu os períodos do dia seguinte.");
+    }
+    c.e = cl(c.e); c.f = cl(c.f);
+    if (c.s <= 0) { c.h = cl(c.h - 15); l.push("😔 Isolamento severo (-15% Saúde)."); }
+    if (c.d <= 0) { c.h = cl(c.h - 15); l.push("🥱 Tédio esmagador (-15% Saúde)."); }
+    if (c.h <= 0) {
+      c.vivo = 0; c.causa = "Colapso nervoso 🧠";
+      rep.push([i, "☠️ Sofreu um colapso nervoso."]);
+      return;
+    }
+
+    c.sl = faint ? 0 : 3;
+    c.sug = gerarSugestoesDia(i);
+    const summaryText = l.length ? l.join(" ") : "Sobreviveu mais um dia na república.";
+    rep.push([i, summaryText]);
+  });
+
+  S.dia++;
+  S.cook = [];
+
+  if (S.dia <= DIAS) {
+    S.ch.forEach((c, i) => {
+      if (c.vivo) {
+        const prevRep = rep.find(r => r[0] === i);
+        addLog(i, prevRep ? prevRep[1] : "Novo dia amanheceu na república.", "☀️ Amanhecer");
+      }
+    });
+  }
+
+  if (S.dia > DIAS || !S.ch.some(c => c.vivo)) {
+    S.ov = { t: "rep", rep, fim: 1 };
+  } else {
+    S.ov = { t: "rep", rep, ev: (S.dia - 1) % 2 === 0 };
+  }
+  sheet = null;
+  render(true);
+}
+
+function aposRel() {
+  sfx('tap');
+  const o = S.ov;
+  if (o.fim) { S.ov = { t: "fim" }; return render(); }
+  if (o.ev) {
+    if (!S.ch[S.at].vivo) S.at = S.ch.findIndex(c => c.vivo);
+    const e = R(EG);
+    S.ov = { t: "ev", e };
+    return render();
+  }
+  S.ov = null;
+  render(true);
+}
+
+function escolhe(k) {
+  const e = S.ov.e, i = S.at, c = S.ch[i], o = e[k + 1];
+  ap(c, o[1]);
+  sfx('promo');
+  floatBadge(fxSummary(o[1]), "#2b7de9");
+  addLog(i, `${o[2]} (${fxSummary(o[1])})`, "🎲 Decisão");
+  S.ov = null;
+  render(true);
+}
+
+// =========================================================================
+// 10. RENDERIZAÇÃO BITLIFE
+// =========================================================================
+function statusBar(icon, label, val) {
+  const barColor = val > 50 ? "bg-[#2eb85c]" : val > 25 ? "bg-[#f5a623]" : "bg-[#e55353]";
+  const warn = val <= 25 ? "text-[#e55353] font-black animate-pulse" : "font-extrabold";
+  return `
+    <div class="flex items-center gap-2 text-[11px]">
+      <span class="w-4 text-center">${icon}</span>
+      <span class="w-16 truncate ${warn}">${label}</span>
+      <div class="flex-1 h-2.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+        <div class="h-full ${barColor} transition-all duration-300 rounded-full" style="width:${val}%"></div>
+      </div>
+      <span class="w-8 text-right font-black text-[10px] ${val <= 25 ? 'text-[#e55353]' : 'text-slate-500 dark:text-slate-400'}">${val}%</span>
+    </div>
+  `;
+}
+
+function render(scrollFeed = false) {
+  if (!S) return;
+  const i = S.at, c = S.ch[i], p = P[i];
+  const pend = S.ch.map((x, k) => x.vivo && x.sl > 1 ? P[k] : null).filter(Boolean);
+
+  const minStat = Math.min(c.f, c.e, c.s, c.d, c.h);
+  let faceBadge = "😎";
+  if (!c.vivo) faceBadge = "💀";
+  else if (minStat <= 20) faceBadge = "😰";
+  else if (minStat <= 45) faceBadge = "😐";
+  else if (c.p >= 67) faceBadge = "🤩";
+
+  const charTabs = P.map((q, k) => {
+    const x = S.ch[k];
+    const isCrit = x.vivo && Math.min(x.f, x.e, x.s, x.d, x.h) <= 25;
+    const isPend = x.vivo && x.sl > 1;
+    const active = k === i;
+    return `
+      <button onclick="S.at=${k};sheet=null;sfx('tap');render(true)"
+        class="relative flex-1 py-1.5 rounded-xl flex flex-col items-center justify-center transition ${active ? 'bg-white text-[#1c2d4a] shadow-md scale-105 font-black' : 'bg-[#263c63] text-white/80 hover:bg-[#2f4978]'} ${!x.vivo ? 'opacity-45 grayscale' : ''}">
+        <span class="text-lg leading-none">${x.vivo ? q.e : '☠️'}</span>
+        <span class="text-[9px] mt-0.5 truncate max-w-[46px] font-extrabold">${q.n.split(' ')[0]}</span>
+        ${isCrit ? '<span class="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#e55353] animate-ping"></span>' : ''}
+        ${isPend ? `<span class="absolute -top-1 -left-1 w-4 h-4 rounded-full bg-[#f5a623] text-white text-[9px] font-black flex items-center justify-center shadow">${x.sl - 1}</span>` : ''}
+      </button>
+    `;
+  }).join("");
+
+  const feedHtml = c.log.map(day => `
+    <div class="mb-4">
+      <div class="text-[#2b7de9] font-black text-sm mb-1.5 flex items-center gap-1.5">
+        <span>Dia ${day.dia}</span>
+        <div class="h-[1px] flex-1 bg-slate-200 dark:bg-slate-700"></div>
+      </div>
+      <div class="space-y-2 text-[13px] leading-snug">
+        ${day.entries.map(en => `
+          <div class="text-slate-700 dark:text-slate-200 font-semibold">
+            ${en.tag ? `<span class="inline-block text-[10px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 mr-1">${en.tag}</span>` : ''}
+            ${en.text}
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `).join("");
+
+  $("app").innerHTML = `
+    <!-- TOPO ESTILO BITLIFE -->
+    <header class="bg-[#1c2d4a] text-white px-3 pt-2.5 pb-3 shadow-md z-10 shrink-0">
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-1.5">
+          <span class="bg-[#e55353] text-white font-black text-[10px] px-2 py-0.5 rounded-md tracking-wider uppercase">BitLife</span>
+          <span class="font-black text-xs tracking-wide text-slate-200">REPÚBLICA ACADÊMICA</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <span class="bg-[#132036] text-amber-300 font-black text-[11px] px-2.5 py-0.5 rounded-full border border-white/10">
+            📅 Dia ${Math.min(S.dia, DIAS)}/${DIAS}
+          </span>
+          <button onclick="toggleMusic()" class="w-7 h-7 rounded-full bg-[#263c63] flex items-center justify-center text-xs" title="Música">
+            ${musOn ? '🔊' : '🔇'}
+          </button>
+          <button onclick="dark=!dark;document.documentElement.classList.toggle('dark',dark);sfx('tap');render()" class="w-7 h-7 rounded-full bg-[#263c63] flex items-center justify-center text-xs" title="Tema">
+            ${dark ? '☀️' : '🌙'}
+          </button>
+        </div>
+      </div>
+
+      <!-- SELETOR DOS 6 MORADORES -->
+      <div class="flex gap-1.5 mb-2.5">${charTabs}</div>
+
+      <!-- CARD DE PERFIL DO PERSONAGEM ATIVO -->
+      <div class="bg-[#132036]/95 rounded-2xl p-2.5 flex items-center justify-between border border-white/10">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <div class="relative w-12 h-12 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-300 flex items-center justify-center text-2xl shadow-inner shrink-0">
+            ${c.vivo ? p.e : '💀'}
+            <span class="absolute -bottom-1 -right-1 text-sm bg-white rounded-full w-5 h-5 flex items-center justify-center shadow">${faceBadge}</span>
+          </div>
+          <div class="min-w-0">
+            <div class="flex items-center gap-1.5">
+              <span class="font-black text-sm truncate">${p.n}</span>
+              <span class="text-[10px] font-black px-1.5 py-0.5 rounded bg-white/10 text-amber-300 shrink-0">
+                ${c.vivo ? `${c.sl}/3 ações` : 'Falecido'}
+              </span>
+            </div>
+            <div class="text-xs text-slate-300 font-bold truncate">${p.car[lvl(c)]} (${c.p}%)</div>
+            <div class="flex items-center gap-1.5 mt-0.5">
+              <span class="text-[10px] text-cyan-300 font-extrabold truncate">${p.trait}</span>
+              ${c.pets.length ? `<span class="text-xs">${c.pets.map(pt => PET_CATS[pt.catId].pets[pt.petIdx][1]).join('')}</span>` : ''}
+            </div>
+          </div>
+        </div>
+        <div class="text-right shrink-0 pl-2">
+          <div class="text-[#4ade80] font-black text-base leading-tight">R$ ${c.m.toLocaleString('pt-BR')}</div>
+          <div class="text-[9px] uppercase tracking-wider text-slate-400 font-extrabold">Saldo Bancário</div>
+          <div class="text-[9px] text-slate-300 font-bold mt-0.5">🛍️ ${c.inv.length + c.bens.length} itens</div>
+        </div>
+      </div>
+    </header>
+
+    <!-- FEED CRONOLÓGICO CENTRAL ESTILO BITLIFE -->
+    <main id="life-feed" class="bl-feed flex-1 overflow-y-auto bg-[var(--bl-card)] px-4 py-3 border-b border-[var(--bl-border)]">
+      ${!c.vivo ? `
+        <div class="mb-3 p-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-xs font-extrabold">
+          ☠️ ${p.n} faleceu (${c.causa}). Selecione outro morador no topo ou avance o dia.
+        </div>
+      ` : ''}
+      ${feedHtml}
+    </main>
+
+    <!-- BARRA DE COMANDOS INFERIOR BITLIFE -->
+    <section class="bg-[#1c2d4a] text-white px-2 pt-2 pb-1.5 shrink-0 relative">
+      <div class="grid grid-cols-5 items-center gap-1">
+        <button onclick="openSheet('carreira', 0)" class="flex flex-col items-center justify-center py-1 rounded-xl hover:bg-white/10 transition">
+          <span class="text-xl">💼</span>
+          <span class="text-[10px] font-extrabold mt-0.5">Carreira</span>
+        </button>
+
+        <button onclick="openSheet('atividades', 0)" class="flex flex-col items-center justify-center py-1 rounded-xl hover:bg-white/10 transition">
+          <span class="text-xl">🎭</span>
+          <span class="text-[10px] font-extrabold mt-0.5">Atividades</span>
+        </button>
+
+        <!-- BOTÃO CENTRAL VERDE +1 DIA -->
+        <div class="flex flex-col items-center justify-center -mt-6">
+          <button onclick="passa()"
+            class="age-btn ${pend.length ? 'pending' : ''} w-16 h-16 rounded-full flex flex-col items-center justify-center text-white font-black border-4 border-[#1c2d4a]">
+            <span class="text-base leading-none">${pend.length ? '⏳' : '+1'}</span>
+            <span class="text-[10px] uppercase tracking-tight mt-0.5">${pend.length ? 'Falta' : 'Dia'}</span>
+          </button>
+        </div>
+
+        <button onclick="openSheet('relacoes', 0)" class="flex flex-col items-center justify-center py-1 rounded-xl hover:bg-white/10 transition relative">
+          <span class="text-xl">🐾</span>
+          <span class="text-[10px] font-extrabold mt-0.5">República</span>
+          ${c.pets.some(pt => !pt.fed) ? '<span class="absolute top-1 right-3 w-2 h-2 rounded-full bg-amber-400"></span>' : ''}
+        </button>
+
+        <button onclick="openSheet('bens', 0)" class="flex flex-col items-center justify-center py-1 rounded-xl hover:bg-white/10 transition">
+          <span class="text-xl">🛍️</span>
+          <span class="text-[10px] font-extrabold mt-0.5">Bens/Loja</span>
+        </button>
+      </div>
+      ${pend.length ? `
+        <div class="text-center text-[10px] text-amber-300 font-extrabold mt-0.5 truncate">
+          Aguardando ações: ${pend.map(x => `${x.e} ${x.n.split(' ')[0]}`).join(' · ')}
+        </div>
+      ` : `
+        <div class="text-center text-[10px] text-emerald-300 font-extrabold mt-0.5">
+          Todos prontos! Toque em +1 Dia para avançar
+        </div>
+      `}
+    </section>
+
+    <!-- BARRAS DE STATUS CLÁSSICAS BITLIFE -->
+    <footer class="bg-[var(--bl-card)] px-4 py-2.5 border-t border-[var(--bl-border)] space-y-1.5 shrink-0">
+      ${statusBar("🍔", "Fome", c.f)}
+      ${statusBar("💤", "Energia", c.e)}
+      ${statusBar("🤼", "Social", c.s)}
+      ${statusBar("🎮", "Diversão", c.d)}
+      ${statusBar("❤️", "Saúde", c.h)}
+    </footer>
+
+    ${renderSheet()}
+    ${renderOverlay()}
+  `;
+
+  if (scrollFeed) {
+    const feed = $("life-feed");
+    if (feed) feed.scrollTop = feed.scrollHeight;
+  }
+}
+
+function openSheet(name, defaultSub = 0) {
+  sfx('tap');
+  if (sheet === name) {
+    sheet = null;
+  } else {
+    sheet = name;
+    subTab = defaultSub;
+  }
+  render();
+}
+
+function setSubTab(idx) {
+  sfx('tap');
+  subTab = idx;
+  render();
+}
+
+// =========================================================================
+// 11. MENUS INFERIORES ESTILO BITLIFE (BOTTOM SHEETS COMPLETOS)
+// =========================================================================
+function renderSheet() {
+  if (!sheet) return "";
+  const i = S.at, c = S.ch[i], p = P[i];
+  const off = !c.vivo || c.sl < 1;
+
+  const itemBtn = (icon, title, sub, onClick, disabled = false, badge = "", badgeColor = "blue") => {
+    const badgeStyles = {
+      blue: "bg-blue-100 dark:bg-blue-900/50 text-[#2b7de9]",
+      green: "bg-emerald-100 dark:bg-emerald-900/50 text-[#2eb85c]",
+      purple: "bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-300",
+      amber: "bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300"
+    };
+    return `
+      <button onclick="${onClick}" ${disabled ? 'disabled' : ''}
+        class="w-full flex items-center justify-between p-3.5 bg-[var(--bl-card)] hover:bg-slate-50 dark:hover:bg-slate-800/80 border-b border-[var(--bl-border)] text-left transition ${disabled ? 'opacity-45 cursor-not-allowed' : ''}">
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="text-2xl shrink-0">${icon}</span>
+          <div class="min-w-0">
+            <div class="font-black text-sm flex items-center gap-1.5 flex-wrap">
+              <span class="truncate">${title}</span>
+              ${badge ? `<span class="text-[10px] px-1.5 py-0.5 rounded font-black ${badgeStyles[badgeColor] || badgeStyles.blue}">${badge}</span>` : ''}
+            </div>
+            <div class="text-xs text-[var(--bl-muted)] font-semibold leading-snug mt-0.5">${sub}</div>
+          </div>
+        </div>
+        <span class="text-slate-400 font-black text-lg pl-2 shrink-0">›</span>
+      </button>
+    `;
+  };
+
+  let title = "", content = "";
+
+  // ---------------- MENU 1: CARREIRA (EXPEDIENTE + 10 EVENTOS ESPECÍFICOS) ----------------
+  if (sheet === "carreira") {
+    title = `💼 Carreira · ${p.n} (${c.vivo ? c.sl : 0}/3 ações)`;
+    const payCalc = Math.round(p.pay * (1 + lvl(c) * 0.6) * (1 + getBonus(c, i, "wk")));
+    const evList = ALL_CAREER_EVENTS[i] || [];
+
+    content = `
+      <div class="p-3 bg-slate-100 dark:bg-slate-800/70 border-b border-[var(--bl-border)]">
+        <div class="flex justify-between text-xs font-black mb-1">
+          <span>Cargo Atual: ${p.car[lvl(c)]}</span>
+          <span class="text-[#2b7de9]">${c.p}%</span>
+        </div>
+        <div class="h-2.5 bg-slate-300 dark:bg-slate-700 rounded-full overflow-hidden">
+          <div class="h-full bg-[#2b7de9] rounded-full" style="width:${c.p}%"></div>
+        </div>
+      </div>
+      ${itemBtn(
+        "💼",
+        p.w === "Treino" ? "Treinar na Área" : `Trabalhar (${p.w})`,
+        `Salário R$ ${payCalc} · -40% Energia · -20% Fome`,
+        "actBasic('trab')",
+        off || c.e < 40,
+        "Expediente",
+        "green"
+      )}
+      <div class="px-3.5 py-2 bg-slate-50 dark:bg-slate-900/60 text-[11px] font-black uppercase tracking-wider text-[var(--bl-muted)] border-b border-[var(--bl-border)]">
+        ⚡ 10 Desafios & Decisões Reais de ${p.n}
+      </div>
+      ${evList.map((ev, idx) => itemBtn(
+        p.e,
+        ev.title,
+        ev.desc,
+        `actCareer(${idx})`,
+        off,
+        `Decisão #${idx+1}`,
+        "amber"
+      )).join("")}
+    `;
+  }
+
+  // ---------------- MENU 2: ATIVIDADES ----------------
+  else if (sheet === "atividades") {
+    title = `🎭 Atividades & Rotina (${c.vivo ? c.sl : 0}/3 ações)`;
+    const catTabs = `
+      <div class="flex gap-1.5 p-2.5 bg-slate-100 dark:bg-slate-900/70 overflow-x-auto border-b border-[var(--bl-border)] shrink-0">
+        <button onclick="setSubTab(0)" class="px-2.5 py-1.5 rounded-xl text-xs font-black whitespace-nowrap ${subTab === 0 ? 'bg-[#2b7de9] text-white' : 'bg-[var(--bl-card)] text-[var(--bl-muted)]'}">
+          ⭐ Hoje & Básicas
+        </button>
+        ${ACT_CATS.map((cat, idx) => {
+          const isFav = p.favActCat.includes(idx);
+          return `
+            <button onclick="setSubTab(${idx + 1})" class="px-2.5 py-1.5 rounded-xl text-xs font-black whitespace-nowrap ${subTab === idx + 1 ? 'bg-[#2b7de9] text-white' : 'bg-[var(--bl-card)] text-[var(--bl-muted)]'}">
+              ${cat.e} ${cat.name.split(' ')[0]} ${isFav ? '💖' : ''}
+            </button>
+          `;
+        }).join("")}
+      </div>
+    `;
+
+    if (subTab === 0) {
+      content = catTabs + `
+        <div class="px-3.5 py-2 bg-purple-50 dark:bg-purple-950/40 text-[11px] font-black uppercase tracking-wider text-purple-700 dark:text-purple-300 border-b border-[var(--bl-border)]">
+          ✨ Sugestões do Dia para ${p.n} (${p.trait})
+        </div>
+        ${c.sug.map(sg => {
+          const cat = ACT_CATS[sg.cIdx];
+          const it = cat.items[sg.iIdx];
+          return itemBtn(
+            it[1],
+            it[0],
+            `${it[2]} (${fxSummary(it[3])})`,
+            `actGeneral(${sg.cIdx}, ${sg.iIdx})`,
+            off,
+            sg.isFav ? "💖 Afinidade +6% Div" : cat.name,
+            sg.isFav ? "purple" : "blue"
+          );
+        }).join("")}
+        <div class="px-3.5 py-2 bg-slate-50 dark:bg-slate-900/60 text-[11px] font-black uppercase tracking-wider text-[var(--bl-muted)] border-b border-[var(--bl-border)]">
+          🏠 Rotina Essencial da República
+        </div>
+        ${itemBtn("🍔", "Comer Podrão", "-R$ 30 · +40% Fome · -10% Saúde", "actBasic('pod')", off || c.m < 30)}
+        ${itemBtn("🍳", "Cozinhar na República", "-R$ 15 · +30% Fome · +12% Social em grupo", "actBasic('coz')", off || c.m < 15, S.cook.length ? `${S.cook.length} na cozinha` : "", "green")}
+        ${itemBtn("💤", "Dormir / Soneca", `+${Math.round(80 + getBonus(c, i, "sl"))}% Energia · Descanso`, "actBasic('dor')", off)}
+        ${itemBtn("🎉", "Sair para Rolê / Festa", "-R$ 50 · +35% Diversão · +22% Social · -15% Energia", "actBasic('sair')", off || c.m < 50)}
+      `;
+    } else {
+      const catIdx = subTab - 1;
+      const cat = ACT_CATS[catIdx];
+      const isFav = p.favActCat.includes(catIdx);
+      content = catTabs + `
+        <div class="px-3.5 py-2 bg-slate-50 dark:bg-slate-900/60 text-[11px] font-black uppercase tracking-wider text-[var(--bl-muted)] border-b border-[var(--bl-border)] flex justify-between">
+          <span>${cat.e} ${cat.name} (10 atividades)</span>
+          ${isFav ? '<span class="text-purple-600 dark:text-purple-300">💖 Categoria Favorita!</span>' : ''}
+        </div>
+        ${cat.items.map((it, itemIdx) => itemBtn(
+          it[1],
+          it[0],
+          `${it[2]} (${fxSummary(it[3])})`,
+          `actGeneral(${catIdx}, ${itemIdx})`,
+          off,
+          isFav ? "💖 +6% Div" : "",
+          "purple"
+        )).join("")}
+      `;
+    }
+  }
+
+  // ---------------- MENU 3: REPÚBLICA & PETS ----------------
+  else if (sheet === "relacoes") {
+    title = `🐾 República & Pet Shop (30 Pets)`;
+    const petCatTabs = `
+      <div class="flex gap-1.5 p-2.5 bg-slate-100 dark:bg-slate-900/70 overflow-x-auto border-b border-[var(--bl-border)] shrink-0">
+        <button onclick="setSubTab(0)" class="px-2.5 py-1.5 rounded-xl text-xs font-black whitespace-nowrap ${subTab === 0 ? 'bg-[#2b7de9] text-white' : 'bg-[var(--bl-card)] text-[var(--bl-muted)]'}">
+          🏠 Convivência & Meus Pets (${c.pets.length}/3)
+        </button>
+        ${PET_CATS.map((pc, idx) => `
+          <button onclick="setSubTab(${idx + 1})" class="px-2.5 py-1.5 rounded-xl text-xs font-black whitespace-nowrap ${subTab === idx + 1 ? 'bg-[#2b7de9] text-white' : 'bg-[var(--bl-card)] text-[var(--bl-muted)]'}">
+            ${pc.e} ${pc.name.split(' ')[0]} ${p.favPetCat === idx ? '💖' : ''}
+          </button>
+        `).join("")}
+      </div>
+    `;
+
+    if (subTab === 0) {
+      content = petCatTabs + `
+        ${itemBtn("🎲", "Interagir com Colegas da República", "+30% Social · +8% Diversão · Diálogos e resenha", "actBasic('int')", off, "Convivência", "green")}
+        <div class="px-3.5 py-2 bg-slate-50 dark:bg-slate-900/60 text-[11px] font-black uppercase tracking-wider text-[var(--bl-muted)] border-b border-[var(--bl-border)]">
+          🐾 Meus Pets no Quarto (${c.pets.length}/3)
+        </div>
+        ${c.pets.length ? c.pets.map((pt, pIdx) => {
+          const info = PET_CATS[pt.catId].pets[pt.petIdx];
+          return `
+            <div class="p-3.5 border-b border-[var(--bl-border)] bg-[var(--bl-card)]">
+              <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2.5">
+                  <span class="text-2xl">${info[1]}</span>
+                  <div>
+                    <div class="font-black text-sm">${info[0]}</div>
+                    <div class="text-[11px] text-[var(--bl-muted)] font-bold">Bônus diário: ${fxSummary(info[4])} · Felicidade: ${pt.fel}%</div>
+                  </div>
+                </div>
+                <span class="text-[10px] font-black px-2 py-0.5 rounded-full ${pt.fed ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}">
+                  ${pt.fed ? 'Alimentado ✔' : 'Com Fome!'}
+                </span>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <button onclick="carePet(${pIdx}, 'feed')" ${pt.fed || !c.vivo ? 'disabled' : ''}
+                  class="py-2 px-3 rounded-xl font-black text-xs bg-[#2eb85c] text-white disabled:opacity-40">
+                  🥣 Alimentar (R$ 10)
+                </button>
+                <button onclick="carePet(${pIdx}, 'play')" ${pt.played || !c.vivo ? 'disabled' : ''}
+                  class="py-2 px-3 rounded-xl font-black text-xs bg-[#2b7de9] text-white disabled:opacity-40">
+                  🎾 Brincar (+12% Div)
+                </button>
+              </div>
+            </div>
+          `;
+        }).join("") : `
+          <div class="p-5 text-center text-xs text-[var(--bl-muted)] font-bold">
+            Você ainda não adotou nenhum pet. Navegue pelas categorias acima para adotar entre 30 espécies!
+          </div>
+        `}
+      `;
+    } else {
+      const catIdx = subTab - 1;
+      const pc = PET_CATS[catIdx];
+      const isFav = p.favPetCat === catIdx;
+      content = petCatTabs + `
+        <div class="px-3.5 py-2 bg-slate-50 dark:bg-slate-900/60 text-[11px] font-black uppercase tracking-wider text-[var(--bl-muted)] border-b border-[var(--bl-border)] flex justify-between">
+          <span>${pc.e} ${pc.name} (${pc.pets.length} espécies)</span>
+          <span>Saldo: R$ ${c.m}</span>
+        </div>
+        ${pc.pets.map((pet, pIdx) => itemBtn(
+          pet[1],
+          pet[0],
+          `${pet[3]} · Bônus/dia: ${fxSummary(pet[4])}`,
+          `adoptPet(${catIdx}, ${pIdx})`,
+          !c.vivo || c.m < pet[2] || c.pets.length >= 3,
+          `Adotar R$ ${pet[2]}`,
+          isFav ? "purple" : "green"
+        )).join("")}
+      `;
+    }
+  }
+
+  // ---------------- MENU 4: BENS & LOJA ----------------
+  else if (sheet === "bens") {
+    title = `🛍️ Bens & Loja · Saldo: R$ ${c.m}`;
+    const shopTabs = `
+      <div class="flex gap-1.5 p-2.5 bg-slate-100 dark:bg-slate-900/70 overflow-x-auto border-b border-[var(--bl-border)] shrink-0">
+        <button onclick="setSubTab(0)" class="px-2.5 py-1.5 rounded-xl text-xs font-black whitespace-nowrap ${subTab === 0 ? 'bg-[#2b7de9] text-white' : 'bg-[var(--bl-card)] text-[var(--bl-muted)]'}">
+          ⭐ Exclusivos & Posses (${c.inv.length + c.bens.length})
+        </button>
+        ${SHOP_CATS.map((sc, idx) => `
+          <button onclick="setSubTab(${idx + 1})" class="px-2.5 py-1.5 rounded-xl text-xs font-black whitespace-nowrap ${subTab === idx + 1 ? 'bg-[#2b7de9] text-white' : 'bg-[var(--bl-card)] text-[var(--bl-muted)]'}">
+            ${sc.e} ${sc.name.split(' ')[0]}
+          </button>
+        `).join("")}
+      </div>
+    `;
+
+    if (subTab === 0) {
+      content = shopTabs + `
+        <div class="px-3.5 py-2 bg-amber-50 dark:bg-amber-950/40 text-[11px] font-black uppercase tracking-wider text-amber-700 dark:text-amber-300 border-b border-[var(--bl-border)]">
+          ⭐ Itens Exclusivos de ${p.n}
+        </div>
+        ${p.loja.map((it, j) => {
+          const ja = c.inv.includes(j);
+          return itemBtn(
+            it[1],
+            it[0],
+            it[4],
+            `buyExclusive(${j})`,
+            !c.vivo || ja || c.m < it[2],
+            ja ? "Adquirido ✔" : `R$ ${it[2]}`,
+            ja ? "green" : "amber"
+          );
+        }).join("")}
+        <div class="px-3.5 py-2 bg-slate-50 dark:bg-slate-900/60 text-[11px] font-black uppercase tracking-wider text-[var(--bl-muted)] border-b border-[var(--bl-border)]">
+          🎒 Minhas Posses no Quarto (${c.inv.length + c.bens.length} itens ativos)
+        </div>
+        <div class="p-3.5 flex flex-wrap gap-1.5">
+          ${c.inv.map(j => `<span class="px-2.5 py-1 rounded-lg bg-amber-100/80 dark:bg-amber-900/40 text-xs font-black">${p.loja[j][1]} ${p.loja[j][0]}</span>`).join("")}
+          ${c.bens.map(code => {
+            const [cid, iid] = code.split("-").map(Number);
+            const it = SHOP_CATS[cid].items[iid];
+            return `<span class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-[var(--bl-border)] text-xs font-extrabold">${it[1]} ${it[0]}</span>`;
+          }).join("")}
+          ${c.inv.length + c.bens.length === 0 ? `<span class="text-xs text-[var(--bl-muted)] italic">Nenhuma posse adquirida ainda. Explore as 6 categorias acima!</span>` : ""}
+        </div>
+      `;
+    } else {
+      const catIdx = subTab - 1;
+      const sc = SHOP_CATS[catIdx];
+      content = shopTabs + `
+        <div class="px-3.5 py-2 bg-slate-50 dark:bg-slate-900/60 text-[11px] font-black uppercase tracking-wider text-[var(--bl-muted)] border-b border-[var(--bl-border)]">
+          ${sc.e} ${sc.name} (10 itens com bônus passivos)
+        </div>
+        ${sc.items.map((it, itemIdx) => {
+          const code = `${catIdx}-${itemIdx}`;
+          const ja = c.bens.includes(code);
+          return itemBtn(
+            it[1],
+            it[0],
+            it[4],
+            `buyShopItem(${catIdx}, ${itemIdx})`,
+            !c.vivo || ja || c.m < it[2],
+            ja ? "Na estante ✔" : `R$ ${it[2]}`,
+            ja ? "green" : "blue"
+          );
+        }).join("")}
+      `;
+    }
+  }
+
+  return `
+    <div class="fixed inset-0 bg-black/60 z-40 flex flex-col justify-end" onclick="if(event.target===this){sheet=null;sfx('tap');render()}">
+      <div class="sheet-anim w-full max-w-[480px] mx-auto bg-[var(--bl-card)] rounded-t-3xl overflow-hidden shadow-2xl border-t border-[var(--bl-border)] flex flex-col max-h-[76vh]">
+        <div class="bg-[#1c2d4a] text-white px-4 py-3 flex items-center justify-between shrink-0">
+          <span class="font-black text-sm">${title}</span>
+          <button onclick="sheet=null;sfx('tap');render()" class="w-7 h-7 rounded-full bg-white/15 font-black text-xs flex items-center justify-center">✕</button>
+        </div>
+        <div class="bl-scroll overflow-y-auto flex-1">
+          ${content}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// =========================================================================
+// 12. MODAIS BITLIFE (EVENTOS DE CARREIRA, RELATÓRIO DIÁRIO E FIM DE SEMESTRE)
+// =========================================================================
+function renderOverlay() {
+  const o = S.ov;
+  if (!o) return "";
+  let body = "";
+
+  if (o.t === "ev_carreira") {
+    const ev = o.ev, p = P[S.at];
+    body = `
+      <div class="bg-[#1c2d4a] text-white px-4 py-3.5 text-center">
+        <div class="text-3xl mb-1">${p.e}</div>
+        <div class="font-black text-base">${ev.title}</div>
+        <div class="text-[10px] font-extrabold uppercase tracking-widest text-amber-300 mt-0.5">Dilema de ${p.n}</div>
+      </div>
+      <div class="p-4">
+        <p class="text-xs font-bold leading-relaxed mb-4 text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800/60 p-3 rounded-xl border border-[var(--bl-border)]">${ev.desc}</p>
+        <div class="space-y-2.5">
+          ${ev.opts.map((opt, optIdx) => `
+            <button onclick="escolheCareerEvent(${optIdx})" class="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-slate-700 border border-[var(--bl-border)] text-left transition">
+              <div class="font-black text-xs ${optIdx === 0 ? 'text-[#2eb85c]' : optIdx === 1 ? 'text-[#2b7de9]' : 'text-[#f5a623]'}">Opção ${['A','B','C'][optIdx]}</div>
+              <div class="font-extrabold text-xs mt-0.5 leading-snug">${opt.label}</div>
+              <div class="text-[10px] text-[var(--bl-muted)] font-bold mt-1">${fxSummary(opt.fx)}</div>
+            </button>
+          `).join("")}
+        </div>
+      </div>
+    `;
+  }
+  else if (o.t === "rep") {
+    body = `
+      <div class="bg-[#1c2d4a] text-white px-4 py-3 flex items-center justify-between">
+        <span class="font-black text-sm">📋 Resumo do Dia ${S.dia - 1}</span>
+        <span class="text-xs font-extrabold text-amber-300">República</span>
+      </div>
+      <div class="p-4 space-y-2.5 max-h-[58vh] overflow-y-auto">
+        ${o.rep.map(([k, txt]) => {
+          const x = S.ch[k];
+          return `
+            <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-[var(--bl-border)] text-xs">
+              <div class="flex justify-between items-center font-black mb-1">
+                <span>${P[k].e} ${P[k].n}</span>
+                <span class="text-[10px] text-[var(--bl-muted)]">🍔${x.f}% 💤${x.e}% 🤼${x.s}% 🎮${x.d}%</span>
+              </div>
+              <div class="text-slate-600 dark:text-slate-300 font-semibold">${txt}</div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+      <div class="p-3 bg-slate-50 dark:bg-slate-900/60 border-t border-[var(--bl-border)]">
+        <button onclick="aposRel()" class="w-full py-3 rounded-xl bg-[#2eb85c] hover:bg-[#229648] text-white font-black text-sm shadow">
+          Continuar ➜
+        </button>
+      </div>
+    `;
+  }
+  else if (o.t === "ev") {
+    const e = o.e, p = P[S.at];
+    body = `
+      <div class="bg-[#2b7de9] text-white px-4 py-3 text-center">
+        <div class="text-3xl mb-1">${p.e}</div>
+        <div class="text-[10px] font-black uppercase tracking-widest opacity-90">Situação Inesperada · ${p.n}</div>
+      </div>
+      <div class="p-4">
+        <p class="text-sm font-extrabold leading-relaxed mb-4 text-center">${e[0]}</p>
+        <div class="space-y-2.5">
+          <button onclick="escolhe(0)" class="w-full p-3 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-slate-700 border border-[var(--bl-border)] text-left transition">
+            <div class="font-black text-xs text-[#2b7de9]">Opção A</div>
+            <div class="font-extrabold text-sm mt-0.5">${e[1][0]}</div>
+          </button>
+          <button onclick="escolhe(1)" class="w-full p-3 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-slate-700 border border-[var(--bl-border)] text-left transition">
+            <div class="font-black text-xs text-[#f5a623]">Opção B</div>
+            <div class="font-extrabold text-sm mt-0.5">${e[2][0]}</div>
+          </button>
+        </div>
+      </div>
+    `;
+  }
+  else if (o.t === "fim") {
+    const rk = S.ch.map((x, k) => ({
+      k, x,
+      pt: Math.round(x.m / 50 + x.p * 2 + (x.f + x.e + x.s + x.d + x.h) / 5 + (x.inv.length + x.bens.length) * 5 + x.pets.length * 10 + (x.vivo ? 100 : 0))
+    })).sort((a, b) => b.pt - a.pt);
+
+    body = `
+      <div class="bg-[#1c2d4a] text-white px-4 py-4 text-center">
+        <div class="text-3xl mb-1">🪦</div>
+        <div class="font-black text-lg">Cemitério & Legado da República</div>
+        <div class="inline-block mt-1 px-3 py-0.5 rounded-full bg-amber-400 text-[#1c2d4a] font-black text-[11px] uppercase tracking-wider">
+          ${S.dia > DIAS ? `Faixa: Sobrevivente dos ${DIAS} Dias` : "Faixa: Caos Acadêmico"}
+        </div>
+      </div>
+      <div class="p-4 space-y-2.5 max-h-[55vh] overflow-y-auto">
+        ${rk.map((r, idx) => `
+          <div class="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-[var(--bl-border)]">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <span class="text-xl font-black">${["🥇", "🥈", "🥉"][idx] || P[r.k].e}</span>
+              <div class="min-w-0">
+                <div class="font-black text-sm truncate">${P[r.k].e} ${P[r.k].n}</div>
+                <div class="text-[11px] font-bold text-[var(--bl-muted)] truncate">
+                  ${r.x.vivo ? `${P[r.k].car[lvl(r.x)]} · R$ ${r.x.m} · 🛍️${r.x.inv.length + r.x.bens.length} 🐾${r.x.pets.length}` : r.x.causa}
+                </div>
+              </div>
+            </div>
+            <span class="px-2.5 py-1 rounded-full bg-[#2eb85c]/15 text-[#2eb85c] font-black text-xs shrink-0">
+              ${r.pt} pts
+            </span>
+          </div>
+        `).join("")}
+      </div>
+      <div class="p-3 bg-slate-50 dark:bg-slate-900/60 border-t border-[var(--bl-border)]">
+        <button onclick="novo()" class="w-full py-3 rounded-xl bg-[#2eb85c] hover:bg-[#229648] text-white font-black text-sm shadow">
+          🔄 Começar Nova Vida
+        </button>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div class="modal-anim w-full max-w-sm bg-[var(--bl-card)] rounded-2xl overflow-hidden shadow-2xl border border-[var(--bl-border)]">
+        ${body}
+      </div>
+    </div>
+  `;
+}
+
+novo();
+</script>
+</body>
+</html>
